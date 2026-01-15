@@ -6,42 +6,48 @@ from datetime import datetime, timedelta
 # --- CONFIGURAÇÃO DO FIREBASE ---
 URL_BASE = "https://restaurante-alves-default-rtdb.firebaseio.com/"
 
-st.set_page_config(page_title="Sistema Alves Mobile", page_icon="360", layout="centered")
+st.set_page_config(page_title="Sistema Alves Mobile", page_icon="📱", layout="centered")
 
-# Funções de Comunicação
+# Funções de Comunicação com o Banco de Dados
 def get_db(path):
-    res = requests.get(f"{URL_BASE}/{path}.json")
-    return res.json() if res.status_code == 200 else {}
+    try:
+        res = requests.get(f"{URL_BASE}/{path}.json")
+        return res.json() if res.status_code == 200 else {}
+    except:
+        return {}
 
 def save_db(path, data):
-    requests.patch(f"{URL_BASE}/{path}.json", data=json.dumps(data))
+    try:
+        requests.patch(f"{URL_BASE}/{path}.json", data=json.dumps(data))
+    except:
+        st.error("Erro ao conectar com o banco de dados.")
 
-# --- CSS PARA ESTILO MOBILE ---
+# Estilização para botões maiores no celular
 st.markdown("""
     <style>
     .stButton>button { width: 100%; height: 50px; border-radius: 10px; font-weight: bold; }
-    .status-box { padding: 20px; border-radius: 10px; margin-bottom: 10px; color: white; }
     </style>
     """, unsafe_allow_html=True)
 
 st.title("RESTAURANTE ALVES 📱")
 
-# Menu Principal
+# Menu Principal Lateral
 menu = st.sidebar.selectbox("Escolha o Painel", 
     ["Início", "📦 Gestão de Estoque", "🥗 Nutricionista", "👨‍🍳 Cozinheiro", "🏷️ Gerador de Etiquetas", "⚠️ Alertas"])
 
-# --- INÍCIO ---
+# --- TELA INICIAL ---
 if menu == "Início":
-    st.info("Bem-vindo ao Sistema de Gestão Móvel. Use o menu lateral para navegar.")
-    st.metric("Status do Servidor", "Conectado ao Firebase")
+    st.info("Painel Mobile Integrado. Use o menu lateral para navegar.")
+    st.metric("Status do Sistema", "Online")
 
 # --- 1. GESTÃO DE ESTOQUE (ADMIN) ---
 elif menu == "📦 Gestão de Estoque":
     st.header("📦 Controle de Estoque")
-    aba = st.tabs(["Cadastrar", "Reposição", "Baixa"])
+    aba = st.tabs(["Cadastrar Novo", "Reposição", "Baixa"])
 
-    with aba[0]: # CADASTRAR NOVO
-        cod = st.text_input("Código de Barras (Clique para usar a câmera do celular)")
+    with aba[0]: # CADASTRAMENTO
+        # Dica: No celular, ao clicar aqui, use a função 'Escanear Texto' ou o ícone de câmera do teclado
+        cod = st.text_input("Código de Barras", key="cad_cod")
         nome = st.text_input("Nome do Produto")
         preco = st.number_input("Preço Unitário", min_value=0.0, format="%.2f")
         cat = st.selectbox("Categoria", ["Proteínas", "Hortifruti", "Estocáveis", "Limpeza", "Outros"])
@@ -50,108 +56,122 @@ elif menu == "📦 Gestão de Estoque":
         est_min = st.number_input("Estoque Mínimo (Aviso)", min_value=0.0)
         venc = st.date_input("Data de Vencimento")
         
-        if st.button("💾 SALVAR NOVO PRODUTO"):
+        if st.button("💾 SALVAR PRODUTO"):
             if cod and nome:
                 dados = {
                     "nome": nome, "preco": preco, "categoria": cat, "medida": unid,
                     "estoque": est_ini, "minimo": est_min, "vencimento": str(venc)
                 }
                 save_db(f"produtos/{cod}", dados)
-                st.success(f"{nome} cadastrado com sucesso!")
-            else: st.error("Preencha Código e Nome!")
+                st.success(f"Produto {nome} cadastrado!")
+            else:
+                st.error("Preencha o Código e o Nome!")
 
     with aba[1]: # REPOSIÇÃO RÁPIDA
-        cod_rep = st.text_input("Ler Código para Reposição")
-        qtd_rep = st.number_input("Qtd a somar", min_value=0.0)
+        cod_rep = st.text_input("Ler Código para REPOSIÇÃO")
+        qtd_rep = st.number_input("Quantidade a ADICIONAR", min_value=0.0)
         if st.button("➕ Confirmar Entrada"):
             prod = get_db(f"produtos/{cod_rep}")
             if prod:
                 novo_valor = prod.get('estoque', 0) + qtd_rep
                 save_db(f"produtos/{cod_rep}", {"estoque": novo_valor})
                 st.success(f"Estoque atualizado: {novo_valor} {prod['medida']}")
-            else: st.error("Produto não encontrado!")
+            else:
+                st.error("Produto não encontrado no sistema!")
 
     with aba[2]: # BAIXA DE ESTOQUE
-        cod_bx = st.text_input("Ler Código para Baixa")
-        qtd_bx = st.number_input("Qtd a retirar", min_value=0.0)
+        cod_bx = st.text_input("Ler Código para BAIXA")
+        qtd_bx = st.number_input("Quantidade a RETIRAR", min_value=0.0)
         if st.button("📉 Confirmar Saída"):
             prod = get_db(f"produtos/{cod_bx}")
             if prod:
                 if prod['estoque'] >= qtd_bx:
                     novo_valor = prod['estoque'] - qtd_bx
                     save_db(f"produtos/{cod_bx}", {"estoque": novo_valor})
-                    st.warning(f"Saída registrada! Restam: {novo_valor}")
-                else: st.error("Estoque insuficiente!")
+                    st.warning(f"Baixa registrada! Saldo atual: {novo_valor}")
+                else:
+                    st.error(f"Saldo insuficiente! Estoque atual: {prod['estoque']}")
 
-# --- 2. ALERTAS ---
-elif menu == "⚠️ Alertas":
-    st.header("⚠️ Alertas de Estoque")
-    prods = get_db("produtos")
-    hoje = datetime.now().date()
-    
-    st.subheader("🔴 Itens Acabando")
-    if prods:
-        for c, p in prods.items():
-            if float(p.get('estoque', 0)) <= float(p.get('minimo', 0)):
-                st.error(f"**{p['nome']}** | Tem: {p['estoque']} | Mínimo: {p['minimo']}")
-
-    st.subheader("🟠 Próximo do Vencimento (15 dias)")
-    if prods:
-        for c, p in prods.items():
-            dt_venc = datetime.strptime(p['vencimento'], "%Y-%m-%d").date()
-            if dt_venc <= hoje + timedelta(days=15):
-                st.warning(f"**{p['nome']}** | Vence em: {dt_venc.strftime('%d/%m/%Y')}")
-
-# --- 3. NUTRICIONISTA ---
+# --- 2. NUTRICIONISTA (SENHA: alvesnutri) ---
 elif menu == "🥗 Nutricionista":
     senha = st.text_input("Senha da Nutricionista", type="password")
     if senha == "alvesnutri":
-        st.header("🥗 Planejamento de Cardápio")
-        data_card = st.date_input("Para qual data?")
-        txt_cardapio = st.text_area("Descrição do Cardápio (Ex: Arroz, feijão e frango)")
-        txt_ficha = st.text_area("Ficha Técnica / Lista de Retirada (Ex: 2kg de arroz, 1kg de frango)")
+        st.header("🥗 Área da Nutricionista")
+        data_card = st.date_input("Data do Planejamento")
+        txt_cardapio = st.text_area("Descrição do Cardápio (Para o Cozinheiro ver)")
+        txt_ficha = st.text_area("Ficha Técnica / Lista de Retirada (Itens e Qtds)")
         
-        if st.button("🚀 Publicar para o Cozinheiro"):
+        if st.button("🚀 Publicar Cardápio"):
             path_data = data_card.strftime("%Y%m%d")
             save_db(f"cardapios/{path_data}", {"cardapio": txt_cardapio, "ficha": txt_ficha})
-            st.success("Cardápio enviado com sucesso!")
+            st.success("Cardápio e Ficha Técnica publicados!")
+    elif senha != "":
+        st.error("Senha incorreta!")
 
-# --- 4. COZINHEIRO ---
+# --- 3. COZINHEIRO ---
 elif menu == "👨‍🍳 Cozinheiro":
-    st.header("👨‍🍳 Painel do Cozinheiro")
+    st.header("👨‍🍳 Painel da Cozinha")
+    # Busca o cardápio pela data de hoje
     hoje_str = datetime.now().strftime("%Y%m%d")
     dados = get_db(f"cardapios/{hoje_str}")
     
     if dados:
-        st.subheader("🍽️ Cardápio do Dia")
-        st.info(dados['cardapio'])
-        st.subheader("📝 Lista de Retirada (Ingredientes)")
-        st.success(dados['ficha'])
+        st.subheader("🍽️ O que cozinhar hoje:")
+        st.info(dados.get('cardapio', 'Sem descrição'))
+        st.subheader("📝 Lista de Retirada do Estoque:")
+        st.success(dados.get('ficha', 'Sem itens listados'))
     else:
-        st.info("Nenhum cardápio cadastrado para hoje.")
+        st.warning("A nutricionista ainda não postou o cardápio de hoje.")
 
-# --- 5. ETIQUETAS (CADASTRO DO ZERO) ---
+# --- 4. ETIQUETAS (DO ZERO) ---
 elif menu == "🏷️ Gerador de Etiquetas":
-    st.header("🏷️ Nova Etiqueta de Identificação")
+    st.header("🏷️ Cadastro de Etiqueta")
+    st.write("Preencha os dados abaixo para gerar a etiqueta de manipulação:")
     
-    with st.container():
-        et_nome = st.text_input("Nome do Alimento")
-        et_venc = st.date_input("Data de Vencimento Final")
-        et_resp = st.text_input("Nome do Responsável")
-        et_manip = st.date_input("Data de Manipulação", value=datetime.now())
-        et_obs = st.selectbox("Armazenamento", ["Sob Refrigeração", "Congelado", "Temperatura Ambiente"])
-        
-        if st.button("🖨️ Gerar Etiqueta para Impressão"):
-            st.markdown(f"""
-            <div style="border: 2px solid black; padding: 10px; background-color: white; color: black; font-family: Arial;">
-                <h3 style="text-align: center; margin: 0;">ALVES RESTAURANTE</h3>
-                <hr>
-                <b>PRODUTO:</b> {et_nome.upper()}<br>
-                <b>MANIPULAÇÃO:</b> {et_manip.strftime('%d/%m/%Y')}<br>
-                <b>VALIDADE:</b> {et_venc.strftime('%d/%m/%Y')}<br>
-                <b>RESPONSÁVEL:</b> {et_resp.upper()}<br>
-                <b>CONSERVAÇÃO:</b> {et_obs}
-            </div>
-            """, unsafe_allow_html=True)
-            st.write("---")
-            st.caption("Dica: Use a opção 'Imprimir' do seu navegador para enviar para a impressora Bluetooth.")
+    et_nome = st.text_input("Nome do Alimento/Produto")
+    et_venc = st.date_input("Data de Vencimento")
+    et_resp = st.text_input("Nome do Responsável")
+    et_manip = st.date_input("Data de Manipulação", value=datetime.now())
+    et_obs = st.selectbox("Forma de Armazenamento", ["Sob Refrigeração", "Congelado", "Temperatura Ambiente"])
+    
+    if st.button("🖨️ Visualizar Etiqueta"):
+        st.markdown(f"""
+        <div style="border: 3px solid black; padding: 15px; background-color: white; color: black; font-family: 'Arial Black';">
+            <h2 style="text-align: center; margin: 0;">ALVES RESTAURANTE</h2>
+            <hr style="border: 1px solid black;">
+            <p style="font-size: 18px;"><b>PRODUTO:</b> {et_nome.upper()}</p>
+            <p style="font-size: 16px;"><b>MANIPULADO EM:</b> {et_manip.strftime('%d/%m/%Y')}</p>
+            <p style="font-size: 16px;"><b>VALIDADE:</b> {et_venc.strftime('%d/%m/%Y')}</p>
+            <p style="font-size: 16px;"><b>RESPONSÁVEL:</b> {et_resp.upper()}</p>
+            <p style="font-size: 16px;"><b>ARMAZENAMENTO:</b> {et_obs.upper()}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        st.write("---")
+        st.caption("Para imprimir: Use o botão de compartilhar/imprimir do seu navegador celular.")
+
+# --- 5. ALERTAS (ESTOQUE MÍNIMO E VENCIMENTO) ---
+elif menu == "⚠️ Alertas":
+    st.header("⚠️ Alertas de Estoque e Validade")
+    prods = get_db("produtos")
+    hoje = datetime.now().date()
+    
+    if prods:
+        # Coluna de Estoque Baixo
+        st.subheader("🔴 Itens Acabando (Estoque Crítico)")
+        for c, p in prods.items():
+            estoque_atual = float(p.get('estoque', 0))
+            estoque_min = float(p.get('minimo', 0))
+            if estoque_atual <= estoque_min:
+                st.error(f"**{p['nome']}** | Tem: {estoque_atual} | Mínimo: {estoque_min}")
+
+        # Coluna de Vencimento
+        st.subheader("🟠 Próximos do Vencimento (Próximos 10 dias)")
+        for c, p in prods.items():
+            try:
+                dt_venc = datetime.strptime(p['vencimento'], "%Y-%m-%d").date()
+                if dt_venc <= hoje + timedelta(days=10):
+                    st.warning(f"**{p['nome']}** | Vence em: {dt_venc.strftime('%d/%m/%Y')}")
+            except:
+                continue
+    else:
+        st.write("Nenhum produto cadastrado para análise.")
