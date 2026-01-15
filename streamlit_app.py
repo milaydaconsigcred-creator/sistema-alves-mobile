@@ -3,22 +3,35 @@ import requests
 import json
 from datetime import datetime
 from PIL import Image
-from pyzbar.pyzbar import decode # Biblioteca para ler o código na foto
+import cv2
+import numpy as np
 
 # --- CONFIGURAÇÃO DO FIREBASE ---
 URL_BASE = "https://restaurante-alves-default-rtdb.firebaseio.com/"
 
 st.set_page_config(page_title="Alves Gestão Mobile", page_icon="🍱", layout="centered")
 
-# --- FUNÇÃO PARA LER CÓDIGO DE BARRA DA FOTO ---
+# --- FUNÇÃO DE LEITURA COM OPENCV (MAIS ESTÁVEL) ---
 def ler_codigo_da_foto(image_file):
     if image_file is not None:
-        img = Image.open(image_file)
-        detectado = decode(img)
-        if detectado:
-            return detectado[0].data.decode('utf-8')
-        else:
-            st.error("❌ Não foi possível ler o código nesta foto. Tente uma mais nítida.")
+        # Converter imagem para formato OpenCV
+        file_bytes = np.asarray(bytearray(image_file.read()), dtype=np.uint8)
+        img = cv2.imdecode(file_bytes, 1)
+        
+        # Detector de código de barras
+        detector = cv2.barcode.BarcodeDetector()
+        ok, decoded_info, decoded_type, points = detector.detectAndDecode(img)
+        
+        if ok and decoded_info:
+            return decoded_info[0]
+        
+        # Tentar detector de QR Code (caso seja um código quadrado)
+        qr_detector = cv2.QRCodeDetector()
+        ok_qr, decoded_info_qr, points_qr, straight_qrcode = qr_detector.detectAndDecode(img)
+        if ok_qr:
+            return decoded_info_qr
+
+        st.error("❌ Código não detectado. Tente uma foto mais próxima, reta e bem iluminada.")
     return ""
 
 # --- ESTILIZAÇÃO ---
@@ -48,34 +61,32 @@ menu = st.sidebar.selectbox("Menu", ["Início", "📦 Estoque", "🥗 Nutricioni
 
 if menu == "Início":
     st.title("ALVES GESTÃO 🍱")
-    st.success("Sistema Pronto para Operação")
+    st.info("Sistema de Estoque com Leitura de Foto")
 
 elif menu == "📦 Estoque":
     aba = st.tabs(["Cadastrar", "Reposição", "Baixa"])
     
-    # LÓGICA PARA AS TRÊS ABAS (REPETIDA PARA GARANTIR FUNCIONAMENTO)
     for i, nome_aba in enumerate(["cad", "rep", "bx"]):
         with aba[i]:
             st.subheader(f"📷 Scanner ({nome_aba.upper()})")
-            foto = st.camera_input("Tire foto do código de barras", key=f"cam_{nome_aba}")
+            foto = st.camera_input("Tire foto do código", key=f"cam_{nome_aba}")
             
             codigo_detectado = ""
             if foto:
                 codigo_detectado = ler_codigo_da_foto(foto)
                 if codigo_detectado:
-                    st.success(f"✅ Código identificado: {codigo_detectado}")
+                    st.success(f"✅ Lido: {codigo_detectado}")
 
-            # O campo de texto agora é preenchido pela variável codigo_detectado
-            cod = st.text_input("Número do Código:", value=codigo_detectado, key=f"input_{nome_aba}")
+            cod = st.text_input("Código:", value=codigo_detectado, key=f"input_{nome_aba}")
             
             if nome_aba == "cad":
                 n = st.text_input("Nome do Produto")
                 est = st.number_input("Estoque Inicial", min_value=0.0)
                 min_est = st.number_input("Estoque Mínimo", min_value=0.0)
                 v = st.date_input("Validade")
-                if st.button("💾 SALVAR PRODUTO"):
+                if st.button("💾 SALVAR"):
                     save_db(f"produtos/{cod}", {"nome": n, "estoque": est, "minimo": min_est, "vencimento": str(v)})
-                    st.success("Cadastrado!")
+                    st.success("Salvo!")
             
             elif nome_aba == "rep":
                 qtd = st.number_input("Qtd Adicionar", min_value=0.0)
@@ -83,7 +94,7 @@ elif menu == "📦 Estoque":
                     p = get_db(f"produtos/{cod}")
                     if p:
                         save_db(f"produtos/{cod}", {"estoque": p.get('estoque', 0) + qtd})
-                        st.success("Estoque aumentado!")
+                        st.success("Estoque Atualizado!")
             
             elif nome_aba == "bx":
                 qtd = st.number_input("Qtd Retirar", min_value=0.0)
@@ -92,6 +103,16 @@ elif menu == "📦 Estoque":
                     if p and p['estoque'] >= qtd:
                         save_db(f"produtos/{cod}", {"estoque": p['estoque'] - qtd})
                         st.warning("Baixa realizada!")
+
+elif menu == "🥗 Nutricionista":
+    senha = st.text_input("Senha", type="password")
+    if senha == "alvesnutri":
+        data_c = st.date_input("Data")
+        txt_c = st.text_area("Cardápio")
+        txt_f = st.text_area("Ficha de Retirada")
+        if st.button("🚀 PUBLICAR"):
+            save_db(f"cardapios/{data_c.strftime('%Y%m%d')}", {"cardapio": txt_c, "ficha": txt_f})
+            st.success("Enviado!")
 
 elif menu == "👨‍🍳 Cozinheiro":
     st.header("Cozinha")
@@ -112,17 +133,15 @@ elif menu == "📚 Histórico":
         st.write(f"**Ficha:** {todos[sel]['ficha']}")
 
 elif menu == "⚠️ Alertas":
-    st.header("Alertas de Estoque e Validade")
+    st.header("Alertas")
     prods = get_db("produtos")
     if prods:
         for c, p in prods.items():
             if p['estoque'] <= p.get('minimo', 0):
                 st.error(f"🚨 ESTOQUE BAIXO: {p['nome']} ({p['estoque']})")
-            # Validade (Lógica Restaurada)
             try:
                 v_dt = datetime.strptime(p['vencimento'], '%Y-%m-%d')
                 dias = (v_dt - datetime.now()).days
                 if 0 <= dias <= 7: st.warning(f"⌛ VENCENDO: {p['nome']} em {dias} dias")
             except: pass
-                
 
