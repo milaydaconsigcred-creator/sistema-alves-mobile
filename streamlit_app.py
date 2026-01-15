@@ -9,29 +9,30 @@ URL_BASE = "https://restaurante-alves-default-rtdb.firebaseio.com/"
 
 st.set_page_config(page_title="Alves Gestão Mobile", page_icon="🍱", layout="centered")
 
-# --- SCANNER COM COMUNICAÇÃO REFORÇADA ---
+# --- NOVO COMPONENTE DE SCANNER PERSISTENTE ---
 def scanner_pro(key):
-    # Usamos um script mais robusto para garantir que o Streamlit receba o valor
+    # Este script agora tem um "alerta" interno para garantir que o dado não se perca
     scanner_html = f"""
     <div id="reader-{key}" style="width: 100%; border-radius: 10px; border: 2px solid #1e3c72;"></div>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script>
         const html5QrCode = new Html5Qrcode("reader-{key}");
-        const config = {{ fps: 25, qrbox: {{ width: 250, height: 150 }} }};
+        const config = {{ fps: 20, qrbox: {{ width: 250, height: 150 }} }};
         
         function onScanSuccess(decodedText) {{
-            // Vibra e envia o dado
-            if (navigator.vibrate) navigator.vibrate(150);
+            if (navigator.vibrate) navigator.vibrate(200);
             
-            // Força o envio do valor para o componente Streamlit
+            // Envia o valor para o Streamlit
             window.parent.postMessage({{
                 type: 'streamlit:set_widget_value',
                 key: '{key}',
                 value: decodedText
             }}, '*');
             
-            // Para o scanner após a leitura para evitar loops
-            html5QrCode.stop().catch(err => console.log(err));
+            // Pequeno aviso para o usuário saber que leu
+            alert("Código lido: " + decodedText);
+            
+            html5QrCode.stop();
         }}
 
         html5QrCode.start({{ facingMode: "environment" }}, config, onScanSuccess)
@@ -45,16 +46,9 @@ st.markdown("""
     <style>
     .stApp { background-color: #f4f7f6; }
     .stButton>button { width: 100%; border-radius: 12px; height: 50px; font-weight: bold; background-color: #1e3c72; color: white; }
-    .etiqueta-print { display: none; }
     @media print {
         header, .stSidebar, .stTabs, button, .no-print { display: none !important; }
-        .etiqueta-print { 
-            display: block !important; 
-            border: 2px solid black; 
-            padding: 20px; 
-            color: black !important; 
-            font-family: Arial;
-        }
+        .etiqueta-print { display: block !important; border: 2px solid black; padding: 20px; color: black !important; }
     }
     </style>
     """, unsafe_allow_html=True)
@@ -69,59 +63,55 @@ def save_db(path, data):
     try: requests.patch(f"{URL_BASE}/{path}.json", data=json.dumps(data))
     except: st.error("Erro no banco.")
 
+# --- INICIALIZAÇÃO DE ESTADOS ---
+if 'cod_lido' not in st.session_state:
+    st.session_state.cod_lido = ""
+
 # --- MENU ---
 menu = st.sidebar.selectbox("Menu", ["Início", "📦 Estoque", "🥗 Nutricionista", "👨‍🍳 Cozinheiro", "🏷️ Etiquetas", "⚠️ Alertas", "📚 Histórico"])
 
 if menu == "Início":
     st.title("ALVES GESTÃO 🍱")
-    st.write("Abra o menu lateral para gerenciar o estoque.")
+    st.write("Abra o menu lateral para começar.")
 
 elif menu == "📦 Estoque":
     aba = st.tabs(["Cadastrar", "Reposição", "Baixa"])
     
     with aba[0]:
-        st.write("### 📸 Scanner Cadastro")
         scanner_pro("val_cad")
-        # O widget abaixo recebe o valor do JavaScript 'val_cad'
+        # O campo agora tenta pegar o valor do session_state ou do widget
         cod = st.text_input("Código de Barras:", key="val_cad")
-        
         nome = st.text_input("Nome do Produto")
         c1, c2 = st.columns(2)
         preco = c1.number_input("Preço", min_value=0.0)
         unid = c2.selectbox("Unid", ["UN", "KG", "L", "CX"])
         est_ini = c1.number_input("Estoque Atual", min_value=0.0)
-        est_min = c2.number_input("Estoque Mínimo", min_value=0.0)
+        est_min = c2.number_input("Mínimo", min_value=0.0)
         venc = st.date_input("Validade")
-        
-        if st.button("💾 SALVAR PRODUTO"):
+        if st.button("💾 SALVAR"):
             if cod:
                 save_db(f"produtos/{cod}", {"nome": nome, "preco": preco, "medida": unid, "estoque": est_ini, "minimo": est_min, "vencimento": str(venc)})
                 st.success("Cadastrado!")
-            else: st.error("Leia o código primeiro.")
 
     with aba[1]:
-        st.write("### 📸 Scanner Reposição")
         scanner_pro("val_rep")
-        cod_rep = st.text_input("Código Lido:", key="val_rep")
-        qtd_rep = st.number_input("Qtd a Adicionar", min_value=0.0)
+        cod_rep = st.text_input("Código para Repor:", key="val_rep")
+        qtd_rep = st.number_input("Quantidade a Adicionar", min_value=0.0)
         if st.button("➕ Confirmar Entrada"):
             p = get_db(f"produtos/{cod_rep}")
             if p:
                 save_db(f"produtos/{cod_rep}", {"estoque": p.get('estoque', 0) + qtd_rep})
                 st.success("Estoque Atualizado!")
-            else: st.error("Produto não encontrado.")
 
     with aba[2]:
-        st.write("### 📸 Scanner Baixa")
         scanner_pro("val_bx")
-        cod_bx = st.text_input("Código Lido:", key="val_bx")
-        qtd_bx = st.number_input("Qtd a Retirar", min_value=0.0)
+        cod_bx = st.text_input("Código para Baixa:", key="val_bx")
+        qtd_bx = st.number_input("Quantidade a Retirar", min_value=0.0)
         if st.button("📉 Confirmar Saída"):
             p = get_db(f"produtos/{cod_bx}")
             if p and p['estoque'] >= qtd_bx:
                 save_db(f"produtos/{cod_bx}", {"estoque": p['estoque'] - qtd_bx})
                 st.warning("Baixa realizada!")
-            else: st.error("Saldo insuficiente.")
 
 elif menu == "🥗 Nutricionista":
     senha = st.text_input("Senha", type="password")
@@ -131,7 +121,7 @@ elif menu == "🥗 Nutricionista":
         txt_f = st.text_area("Ficha de Retirada")
         if st.button("🚀 PUBLICAR"):
             save_db(f"cardapios/{data_c.strftime('%Y%m%d')}", {"cardapio": txt_c, "ficha": txt_f})
-            st.success("Enviado!")
+            st.success("Publicado!")
 
 elif menu == "👨‍🍳 Cozinheiro":
     st.header("Cozinha")
@@ -140,10 +130,11 @@ elif menu == "👨‍🍳 Cozinheiro":
     if d:
         st.info(f"**CARDÁPIO:**\n{d['cardapio']}")
         st.success(f"**RETIRADA:**\n{d['ficha']}")
-    else: st.warning("A tela foi limpa. Sem cardápio para hoje.")
+    else:
+        st.warning("Lista limpa. Aguardando cardápio de hoje.")
 
 elif menu == "📚 Histórico":
-    st.header("Histórico")
+    st.header("Histórico de Cardápios")
     todos = get_db("cardapios")
     if todos:
         datas = sorted(todos.keys(), reverse=True)
@@ -159,18 +150,10 @@ elif menu == "🏷️ Etiquetas":
     e_resp = st.text_input("Responsável")
     e_obs = st.selectbox("Conservação", ["Refrigeração", "Congelado", "Seco"])
     if st.button("📄 GERAR"):
-        st.session_state.ok_print = True
-    if st.session_state.get('ok_print'):
-        st.markdown(f"""
-            <div class="etiqueta-print">
-                <h3>ALVES RESTAURANTE</h3>
-                <hr>
-                <p><b>PRODUTO:</b> {e_nome.upper()}</p>
-                <p><b>VALIDADE:</b> {e_venc.strftime('%d/%m/%Y')}</p>
-                <p><b>RESP.:</b> {e_resp.upper()}</p>
-            </div>
-            <button class="no-print" onclick="window.print()" style="width:100%; height:50px; background:#1e3c72; color:white; border-radius:10px;">🖨️ IMPRIMIR</button>
-        """, unsafe_allow_html=True)
+        st.session_state.ok_p = True
+    if st.session_state.get('ok_p'):
+        st.markdown(f'<div class="etiqueta-print"><h3>ALVES RESTAURANTE</h3><hr><p><b>PRODUTO:</b> {e_nome.upper()}</p><p><b>VALIDADE:</b> {e_venc.strftime("%d/%m/%Y")}</p><p><b>RESP.:</b> {e_resp.upper()}</p></div>', unsafe_allow_html=True)
+        st.button("🖨️ IMPRIMIR", on_click=lambda: components.html("<script>window.print()</script>"))
 
 elif menu == "⚠️ Alertas":
     st.header("Alertas")
