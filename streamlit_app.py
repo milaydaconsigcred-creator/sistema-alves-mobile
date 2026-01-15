@@ -9,14 +9,14 @@ URL_BASE = "https://restaurante-alves-default-rtdb.firebaseio.com/"
 
 st.set_page_config(page_title="Alves Gestão Mobile", page_icon="🍱", layout="centered")
 
-# --- SCANNER PROFISSIONAL INTEGRADO ---
+# --- SCANNER COM FORÇA NA CÂMERA TRASEIRA ---
 def scanner_pro(key):
-    # Configuração avançada para ler códigos de barras (EAN, CODE128, etc)
     scanner_html = f"""
     <div id="reader-{key}" style="width: 100%; border-radius: 12px; border: 2px solid #1a2a6c; overflow: hidden;"></div>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script>
         function onScanSuccess(decodedText) {{
+            // Envia o código para o Streamlit e para o som de sucesso
             window.parent.postMessage({{
                 type: 'streamlit:set_widget_value',
                 key: '{key}',
@@ -24,23 +24,25 @@ def scanner_pro(key):
             }}, '*');
         }}
 
+        // Configurações para forçar a câmera traseira e focar em barras
+        const html5QrCode = new Html5Qrcode("reader-{key}");
         const config = {{ 
             fps: 20, 
-            qrbox: {{ width: 300, height: 150 }},
-            aspectRatio: 1.0,
-            formatsToSupport: [ 
-                Html5QrcodeSupportedFormats.EAN_13, 
-                Html5QrcodeSupportedFormats.CODE_128, 
-                Html5QrcodeSupportedFormats.UPC_A,
-                Html5QrcodeSupportedFormats.QR_CODE 
-            ]
+            qrbox: {{ width: 280, height: 120 }}, // Formato retangular para barras
+            aspectRatio: 1.0 
         }};
 
-        const html5QrcodeScanner = new Html5QrcodeScanner("reader-{key}", config, false);
-        html5QrcodeScanner.render(onScanSuccess);
+        // "environment" força a câmera traseira
+        html5QrCode.start(
+            {{ facingMode: "environment" }}, 
+            config, 
+            onScanSuccess
+        ).catch((err) => {{
+            console.error("Erro ao abrir câmera traseira", err);
+        }});
     </script>
     """
-    return components.html(scanner_html, height=420)
+    return components.html(scanner_html, height=400)
 
 # --- ESTILIZAÇÃO ---
 st.markdown("""
@@ -71,29 +73,29 @@ def save_db(path, data):
 menu = st.sidebar.selectbox("Menu", ["Início", "📦 Estoque", "🥗 Nutricionista", "👨‍🍳 Cozinheiro", "🏷️ Etiquetas", "⚠️ Alertas"])
 
 if menu == "Início":
-    st.markdown('<div class="welcome-card"><h1>ALVES GESTÃO 🍱</h1><p>Sistema Mobile v3.0</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="welcome-card"><h1>ALVES GESTÃO 🍱</h1><p>Scanner Traseiro Ativado</p></div>', unsafe_allow_html=True)
 
 elif menu == "📦 Estoque":
     aba = st.tabs(["Cadastrar", "Reposição", "Baixa"])
 
     with aba[0]:
-        st.subheader("📸 Ler Código")
+        st.subheader("📸 Cadastro (Câmera Traseira)")
         scanner_pro("cod_cad")
-        cod = st.text_input("Código de Barras:", key="cod_cad")
+        cod = st.text_input("Código:", key="cod_cad")
         nome = st.text_input("Nome do Produto")
         c1, c2 = st.columns(2)
         preco = c1.number_input("Preço", min_value=0.0)
         unid = c2.selectbox("Unid", ["UN", "KG", "L", "CX"])
         est_ini = c1.number_input("Estoque Inicial", min_value=0.0)
-        est_min = c2.number_input("Estoque Mínimo", min_value=0.0)
+        est_min = c2.number_input("Mínimo", min_value=0.0)
         venc = st.date_input("Vencimento")
         if st.button("💾 SALVAR"):
             if cod and nome:
                 save_db(f"produtos/{cod}", {"nome": nome, "preco": preco, "medida": unid, "estoque": est_ini, "minimo": est_min, "vencimento": str(venc)})
-                st.success("Salvo!")
+                st.success("Produto salvo!")
 
     with aba[1]:
-        st.subheader("📸 Ler para Reposição")
+        st.subheader("📸 Reposição")
         scanner_pro("cod_rep")
         cod_rep = st.text_input("Código Lido:", key="cod_rep")
         qtd_rep = st.number_input("Qtd a Somar", min_value=0.0)
@@ -102,10 +104,9 @@ elif menu == "📦 Estoque":
             if p:
                 save_db(f"produtos/{cod_rep}", {"estoque": p.get('estoque', 0) + qtd_rep})
                 st.success("Estoque Atualizado!")
-            else: st.error("Produto não cadastrado!")
 
     with aba[2]:
-        st.subheader("📸 Ler para Baixa")
+        st.subheader("📸 Baixa")
         scanner_pro("cod_bx")
         cod_bx = st.text_input("Código Lido:", key="cod_bx")
         qtd_bx = st.number_input("Qtd a Retirar", min_value=0.0)
@@ -114,7 +115,6 @@ elif menu == "📦 Estoque":
             if p and p['estoque'] >= qtd_bx:
                 save_db(f"produtos/{cod_bx}", {"estoque": p['estoque'] - qtd_bx})
                 st.warning("Baixa realizada!")
-            else: st.error("Saldo insuficiente!")
 
 elif menu == "🥗 Nutricionista":
     senha = st.text_input("Senha", type="password")
@@ -122,7 +122,7 @@ elif menu == "🥗 Nutricionista":
         st.subheader("Nutrição")
         data_c = st.date_input("Data")
         txt_c = st.text_area("Cardápio")
-        txt_f = st.text_area("Retirada de Estoque")
+        txt_f = st.text_area("Retirada")
         if st.button("🚀 PUBLICAR"):
             save_db(f"cardapios/{data_c.strftime('%Y%m%d')}", {"cardapio": txt_c, "ficha": txt_f})
             st.success("Publicado!")
@@ -138,7 +138,7 @@ elif menu == "👨‍🍳 Cozinheiro":
 
 elif menu == "🏷️ Etiquetas":
     st.header("🏷️ Etiquetas")
-    e_nome = st.text_input("Nome")
+    e_nome = st.text_input("Produto")
     c1, c2 = st.columns(2)
     e_venc = c1.date_input("Validade")
     e_manip = c2.date_input("Manipulação")
