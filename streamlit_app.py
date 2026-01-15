@@ -2,33 +2,46 @@ import streamlit as st
 import requests
 import json
 from datetime import datetime, timedelta
+import streamlit.components.v1 as components
 
 # --- CONFIGURAÇÃO DO FIREBASE ---
 URL_BASE = "https://restaurante-alves-default-rtdb.firebaseio.com/"
 
 st.set_page_config(page_title="Alves Gestão Mobile", page_icon="🍱", layout="centered")
 
-# --- ESTILO E LOGICA DE IMPRESSÃO ---
+# --- FUNÇÃO DO SCANNER JAVASCRIPT (HTML5-QRCODE) ---
+def barcode_scanner(key):
+    # Este componente injeta um leitor de código de barras real no navegador
+    scanner_html = f"""
+    <div id="reader-{key}" style="width: 100%;"></div>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script>
+        function onScanSuccess(decodedText, decodedResult) {{
+            window.parent.postMessage({{
+                type: 'streamlit:set_widget_value',
+                key: '{key}',
+                value: decodedText
+            }}, '*');
+            html5QrcodeScanner.clear();
+        }}
+        var html5QrcodeScanner = new Html5QrcodeScanner(
+            "reader-{key}", {{ fps: 10, qrbox: 250 }});
+        html5QrcodeScanner.render(onScanSuccess);
+    </script>
+    """
+    return components.html(scanner_html, height=350)
+
+# --- ESTILIZAÇÃO E IMPRESSÃO ---
 st.markdown("""
     <style>
-    /* Estilo Geral Moderno */
-    .stApp { background-color: #f8f9fa; }
-    .stButton>button { width: 100%; border-radius: 12px; height: 55px; font-weight: bold; font-size: 16px; }
+    .stApp { background-color: #f4f7f6; }
+    .welcome-card { background: linear-gradient(135deg, #1a2a6c, #b21f1f); padding: 20px; border-radius: 15px; color: white; text-align: center; }
+    .stButton>button { width: 100%; border-radius: 10px; height: 50px; font-weight: bold; }
     
-    .welcome-card { 
-        background: linear-gradient(135deg, #1a2a6c, #b21f1f, #fdbb2d); 
-        padding: 25px; border-radius: 20px; color: white; text-align: center; margin-bottom: 25px;
-    }
-
-    /* FORMATO ETIQUETA PARA IMPRESSÃO */
     @media print {
         body * { visibility: hidden; }
         .etiqueta-print, .etiqueta-print * { visibility: visible; }
-        .etiqueta-print { 
-            position: absolute; left: 0; top: 0; 
-            width: 100% !important; border: 2px solid black !important;
-            padding: 10px;
-        }
+        .etiqueta-print { position: absolute; left: 0; top: 0; width: 100%; border: 2px solid black; padding: 15px; }
         header, .stSidebar, .stTabs, button { display: none !important; }
     }
     </style>
@@ -42,53 +55,51 @@ def get_db(path):
 
 def save_db(path, data):
     try: requests.patch(f"{URL_BASE}/{path}.json", data=json.dumps(data))
-    except: st.error("Erro ao salvar dados.")
+    except: st.error("Erro ao salvar.")
 
 # --- MENU ---
 menu = st.sidebar.selectbox("Navegação", 
     ["Início", "📦 Gestão de Estoque", "🥗 Nutricionista", "👨‍🍳 Cozinheiro", "🏷️ Gerador de Etiquetas", "⚠️ Alertas"])
 
 if menu == "Início":
-    st.markdown('<div class="welcome-card"><h1>ALVES GESTÃO 🍱</h1><p>Controle Profissional de Estoque</p></div>', unsafe_allow_html=True)
-    st.success(f"🔓 Sistema Conectado | {datetime.now().strftime('%d/%m/%Y')}")
+    st.markdown('<div class="welcome-card"><h1>ALVES GESTÃO 🍱</h1><p>Sistema Mobile Profissional</p></div>', unsafe_allow_html=True)
 
 elif menu == "📦 Gestão de Estoque":
-    st.header("📦 Controle de Estoque")
+    st.header("📦 Estoque")
     aba = st.tabs(["Cadastrar", "Reposição", "Baixa"])
 
-    with aba[0]:
-        # Tentativa de Input de Câmera Nativo do Navegador
-        st.write("📸 **Tire uma foto do código de barras para ler o número:**")
-        cam_shot = st.camera_input("Scanner", key="scan_cad")
-        if cam_shot:
-            st.warning("Verifique o número na foto e digite abaixo:")
-            
-        cod = st.text_input("Número do Código de Barras", key="in_cad")
+    with aba[0]: # CADASTRO
+        st.subheader("📷 Scanner de Cadastro")
+        barcode_scanner("cod_cad") # CHAMA O SCANNER
+        cod = st.text_input("Código Detectado:", key="cod_cad")
         nome = st.text_input("Nome do Produto")
         c1, c2 = st.columns(2)
         preco = c1.number_input("Preço", min_value=0.0)
         unid = c2.selectbox("Unidade", ["UN", "KG", "L", "CX"])
         est_ini = c1.number_input("Estoque Inicial", min_value=0.0)
-        est_min = c2.number_input("Mínimo Aviso", min_value=0.0)
+        est_min = c2.number_input("Mínimo", min_value=0.0)
         venc = st.date_input("Vencimento")
-        
         if st.button("💾 SALVAR PRODUTO"):
             if cod and nome:
                 save_db(f"produtos/{cod}", {"nome": nome, "preco": preco, "medida": unid, "estoque": est_ini, "minimo": est_min, "vencimento": str(venc)})
                 st.success("Salvo!")
 
-    with aba[1]:
-        cod_rep = st.text_input("Código para Repor", key="in_rep")
-        qtd_rep = st.number_input("Qtd a ADICIONAR", min_value=0.0)
+    with aba[1]: # REPOSIÇÃO
+        st.subheader("📷 Scanner de Reposição")
+        barcode_scanner("cod_rep")
+        cod_rep = st.text_input("Código Lido:", key="cod_rep")
+        qtd_rep = st.number_input("Qtd a Adicionar", min_value=0.0)
         if st.button("➕ Confirmar Entrada"):
             p = get_db(f"produtos/{cod_rep}")
             if p:
                 save_db(f"produtos/{cod_rep}", {"estoque": p.get('estoque', 0) + qtd_rep})
                 st.success("Atualizado!")
 
-    with aba[2]:
-        cod_bx = st.text_input("Código para Baixa", key="in_bx")
-        qtd_bx = st.number_input("Qtd a RETIRAR", min_value=0.0)
+    with aba[2]: # BAIXA
+        st.subheader("📷 Scanner de Baixa")
+        barcode_scanner("cod_bx")
+        cod_bx = st.text_input("Código Lido:", key="cod_bx")
+        qtd_bx = st.number_input("Qtd a Retirar", min_value=0.0)
         if st.button("📉 Confirmar Saída"):
             p = get_db(f"produtos/{cod_bx}")
             if p and p['estoque'] >= qtd_bx:
@@ -98,22 +109,22 @@ elif menu == "📦 Gestão de Estoque":
 elif menu == "🥗 Nutricionista":
     senha = st.text_input("Senha", type="password")
     if senha == "alvesnutri":
-        st.subheader("Planejamento Nutricional")
-        data_c = st.date_input("Data do Cardápio")
-        txt_c = st.text_area("Descrição do Cardápio")
-        txt_f = st.text_area("Itens para Baixa (Ficha Técnica)")
+        st.subheader("Planejamento")
+        data_c = st.date_input("Data")
+        txt_c = st.text_area("Cardápio")
+        txt_f = st.text_area("Itens para Retirada")
         if st.button("🚀 ENVIAR"):
             save_db(f"cardapios/{data_c.strftime('%Y%m%d')}", {"cardapio": txt_c, "ficha": txt_f})
             st.success("Publicado!")
 
 elif menu == "👨‍🍳 Cozinheiro":
-    st.header("👨‍🍳 Painel da Cozinha")
+    st.header("Painel da Cozinha")
     hoje = datetime.now().strftime("%Y%m%d")
     d = get_db(f"cardapios/{hoje}")
     if d:
         st.info(f"**CARDÁPIO:**\n{d['cardapio']}")
-        st.success(f"**LISTA DE RETIRADA:**\n{d['ficha']}")
-    else: st.warning("Aguardando nutricionista.")
+        st.success(f"**RETIRADA:**\n{d['ficha']}")
+    else: st.warning("Sem cardápio hoje.")
 
 elif menu == "🏷️ Gerador de Etiquetas":
     st.header("🏷️ Etiquetas")
@@ -140,7 +151,7 @@ elif menu == "🏷️ Gerador de Etiquetas":
             </div>
             <br>
             <button onclick="window.print()" style="width:100%; height:55px; background-color:#b21f1f; color:white; border-radius:12px; font-weight:bold; cursor:pointer; border:none;">
-                🖨️ IMPRIMIR ETIQUETA AGORA
+                🖨️ IMPRIMIR ETIQUETA
             </button>
         """, unsafe_allow_html=True)
 
