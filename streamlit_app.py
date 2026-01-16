@@ -14,51 +14,33 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. COMANDO DE DESPERTAR CÂMERA (SCRIPT) ---
-st.markdown("""
-    <script>
-    async function ativarCamera() {
-        try {
-            await navigator.mediaDevices.getUserMedia({ video: true });
-            console.log("Câmera Autorizada");
-        } catch (err) {
-            console.error("Erro na permissão: ", err);
-        }
-    }
-    ativarCamera();
-    </script>
-    """, unsafe_allow_html=True)
-
-# --- 3. CONFIGURAÇÃO DO FIREBASE ---
+# --- 2. CONFIGURAÇÃO DO FIREBASE ---
 URL_BASE = "https://restaurante-alves-default-rtdb.firebaseio.com/"
 
-# --- 4. FUNÇÃO DE LEITURA (OPENCV) ---
+# --- 3. FUNÇÃO DE LEITURA (OPENCV) ---
 def ler_codigo_da_foto(image_file):
     if image_file is not None:
         try:
             file_bytes = np.asarray(bytearray(image_file.read()), dtype=np.uint8)
             img = cv2.imdecode(file_bytes, 1)
             
-            # Tenta ler Código de Barras
+            # Detector de código de barras
             detector = cv2.barcode.BarcodeDetector()
             ok, decoded_info, decoded_type, points = detector.detectAndDecode(img)
             
             if ok and decoded_info[0]:
-                if navigator.vibrate: st.write("<script>window.navigator.vibrate(200)</script>", unsafe_allow_html=True)
                 return decoded_info[0]
             
-            # Tenta QR Code
+            # Tentar QR Code se barras falhar
             qr_detector = cv2.QRCodeDetector()
             ok_qr, val, _, _ = qr_detector.detectAndDecode(img)
             if ok_qr and val:
                 return val
-                
-            st.warning("⚠️ Foto capturada, mas as barras não estão nítidas. Tente focar melhor ou afastar um pouco.")
         except Exception as e:
             st.error(f"Erro no processamento: {e}")
     return ""
 
-# --- 5. FUNÇÕES DE BANCO DE DADOS ---
+# --- 4. FUNÇÕES DE BANCO DE DADOS ---
 def get_db(path):
     try:
         res = requests.get(f"{URL_BASE}/{path}.json")
@@ -67,9 +49,9 @@ def get_db(path):
 
 def save_db(path, data):
     try: requests.patch(f"{URL_BASE}/{path}.json", data=json.dumps(data))
-    except: st.error("Erro de conexão com o Firebase.")
+    except: st.error("Erro de conexão com o servidor.")
 
-# --- 6. ESTILO VISUAL (CSS) ---
+# --- 5. ESTILO VISUAL ---
 st.markdown("""
     <style>
     .stApp { background-color: #f4f7f6; }
@@ -82,105 +64,118 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 7. MENU LATERAL ---
+# --- 6. MENU LATERAL ---
 st.sidebar.title("🍱 MENU ALVES")
-if st.sidebar.button("🔓 LIBERAR CÂMERA"):
-    st.markdown("<script>navigator.mediaDevices.getUserMedia({ video: true })</script>", unsafe_allow_html=True)
-    st.sidebar.success("Comando enviado! Clique na tela se a mensagem aparecer.")
-
 menu = st.sidebar.selectbox("Ir para:", ["Início", "📦 Estoque", "🥗 Nutricionista", "👨‍🍳 Cozinheiro", "🏷️ Etiquetas", "⚠️ Alertas", "📚 Histórico"])
 
-# --- 8. LÓGICA DAS PÁGINAS ---
+# --- 7. LÓGICA DAS PÁGINAS ---
 
 if menu == "Início":
     st.title("ALVES GESTÃO 🍱")
-    st.success("App Operacional. Se a câmera pedir permissão, clique em 'Allow' ou 'Permitir'.")
+    st.info("💡 Se a câmera pedir permissão, clique em 'Permitir' e depois em 'Tirar Foto'.")
 
 elif menu == "📦 Estoque":
     aba = st.tabs(["Cadastrar", "Reposição", "Baixa"])
     
     for i, nome_aba in enumerate(["cad", "rep", "bx"]):
         with aba[i]:
-            st.subheader(f"📷 Scanner ({nome_aba.upper()})")
-            foto = st.camera_input("Focar Código de Barras", key=f"cam_{nome_aba}")
+            st.write(f"### 📷 Capturar Código ({nome_aba.upper()})")
+            
+            # Versão estável do componente de câmera
+            foto = st.camera_input("Aponte para o código e clique no botão", key=f"cam_{nome_aba}")
             
             codigo_detectado = ""
             if foto:
-                codigo_detectado = ler_codigo_da_foto(foto)
-                if codigo_detectado:
-                    st.success(f"✅ Lido: {codigo_detectado}")
+                with st.spinner("Processando imagem..."):
+                    codigo_detectado = ler_codigo_da_foto(foto)
+                    if codigo_detectado:
+                        st.success(f"✅ Código identificado: {codigo_detectado}")
+                    else:
+                        st.warning("⚠️ Não foi possível ler. Tente focar melhor e tire a foto novamente.")
 
-            cod = st.text_input("Código:", value=codigo_detectado, key=f"input_{nome_aba}")
+            cod = st.text_input("Número do Código:", value=codigo_detectado, key=f"input_{nome_aba}")
             
             if nome_aba == "cad":
                 n = st.text_input("Nome do Produto")
-                est = st.number_input("Estoque Atual", min_value=0.0)
-                m_est = st.number_input("Estoque Mínimo", min_value=0.0)
+                c1, c2 = st.columns(2)
+                est = c1.number_input("Estoque Inicial", min_value=0.0)
+                m_est = c2.number_input("Mínimo", min_value=0.0)
                 v = st.date_input("Vencimento")
-                if st.button("💾 SALVAR NOVO"):
+                if st.button("💾 SALVAR NOVO PRODUTO", key="btn_cad"):
                     if cod and n:
                         save_db(f"produtos/{cod}", {"nome": n, "estoque": est, "minimo": m_est, "vencimento": str(v)})
                         st.success("Cadastrado com sucesso!")
 
             elif nome_aba == "rep":
                 qtd = st.number_input("Adicionar quantidade", min_value=0.0)
-                if st.button("➕ Confirmar Entrada"):
+                if st.button("➕ Confirmar Entrada de Estoque", key="btn_rep"):
                     p = get_db(f"produtos/{cod}")
                     if p:
                         save_db(f"produtos/{cod}", {"estoque": p.get('estoque', 0) + qtd})
                         st.success("Estoque Atualizado!")
+                    else: st.error("Produto não encontrado!")
 
             elif nome_aba == "bx":
                 qtd = st.number_input("Retirar quantidade", min_value=0.0)
-                if st.button("📉 Confirmar Baixa"):
+                if st.button("📉 Confirmar Baixa de Estoque", key="btn_bx"):
                     p = get_db(f"produtos/{cod}")
                     if p and p['estoque'] >= qtd:
                         save_db(f"produtos/{cod}", {"estoque": p['estoque'] - qtd})
                         st.warning("Baixa realizada!")
+                    else: st.error("Saldo insuficiente ou produto não cadastrado.")
 
 elif menu == "🥗 Nutricionista":
     senha = st.text_input("Senha", type="password")
     if senha == "alvesnutri":
         data_c = st.date_input("Data do Cardápio")
-        txt_c = st.text_area("O que vamos servir?")
-        txt_f = st.text_area("Itens para baixa (Ficha técnica)")
-        if st.button("🚀 PUBLICAR"):
+        txt_c = st.text_area("Descrição do Cardápio")
+        txt_f = st.text_area("Ficha de Baixa (Ingredientes)")
+        if st.button("🚀 PUBLICAR PARA COZINHA"):
             save_db(f"cardapios/{data_c.strftime('%Y%m%d')}", {"cardapio": txt_c, "ficha": txt_f})
-            st.success("Cardápio enviado para a cozinha!")
+            st.success("Cardápio Publicado!")
 
 elif menu == "👨‍🍳 Cozinheiro":
-    st.header("Cozinha")
+    st.header("👨‍🍳 Painel da Cozinha")
     hoje = datetime.now().strftime("%Y%m%d")
     d = get_db(f"cardapios/{hoje}")
     if d:
         st.info(f"**CARDÁPIO DO DIA:**\n{d['cardapio']}")
         st.success(f"**LISTA DE RETIRADA:**\n{d['ficha']}")
     else:
-        st.warning("Aguardando cardápio de hoje...")
+        st.warning("⚠️ Aguardando cardápio de hoje...")
 
 elif menu == "📚 Histórico":
-    st.header("Histórico")
+    st.header("📚 Histórico de Cardápios")
     todos = get_db("cardapios")
     if todos:
         datas = sorted(todos.keys(), reverse=True)
-        sel = st.selectbox("Selecione uma data anterior", datas)
+        sel = st.selectbox("Selecione uma data", datas)
         st.write(f"**Cardápio:** {todos[sel]['cardapio']}")
         st.write(f"**Ficha:** {todos[sel]['ficha']}")
 
 elif menu == "🏷️ Etiquetas":
-    e_nome = st.text_input("Produto")
+    e_nome = st.text_input("Nome do Produto")
     c1, c2 = st.columns(2)
     e_venc = c1.date_input("Validade")
     e_manip = c2.date_input("Manipulação")
     e_resp = st.text_input("Responsável")
-    if st.button("📄 GERAR"):
-        st.session_state.ok_p = True
-    if st.session_state.get('ok_p'):
-        st.markdown(f'<div class="etiqueta-print"><h3>ALVES RESTAURANTE</h3><hr><p><b>PRODUTO:</b> {e_nome.upper()}</p><p><b>VALIDADE:</b> {e_venc.strftime("%d/%m/%Y")}</p><p><b>RESP.:</b> {e_resp.upper()}</p></div>', unsafe_allow_html=True)
-        st.button("🖨️ IMPRIMIR", on_click=lambda: st.write("<script>window.print()</script>", unsafe_allow_html=True))
+    if st.button("📄 GERAR ETIQUETA"):
+        st.session_state.p_ok = True
+    if st.session_state.get('p_ok'):
+        st.markdown(f"""
+            <div class="etiqueta-print">
+                <h2 style="text-align:center">ALVES RESTAURANTE</h2>
+                <hr>
+                <p><b>PRODUTO:</b> {e_nome.upper()}</p>
+                <p><b>VALIDADE:</b> {e_venc.strftime('%d/%m/%Y')}</p>
+                <p><b>MANIPULAÇÃO:</b> {e_manip.strftime('%d/%m/%Y')}</p>
+                <p><b>RESPONSÁVEL:</b> {e_resp.upper()}</p>
+            </div>
+            <button onclick="window.print()" style="width:100%; height:50px; background:#1e3c72; color:white; border-radius:10px;">🖨️ IMPRIMIR</button>
+        """, unsafe_allow_html=True)
 
 elif menu == "⚠️ Alertas":
-    st.header("Alertas Críticos")
+    st.header("⚠️ Itens Críticos")
     prods = get_db("produtos")
     hoje_dt = datetime.now()
     if prods:
@@ -193,5 +188,6 @@ elif menu == "⚠️ Alertas":
                 if 0 <= dias <= 7: st.warning(f"⌛ VENCENDO: {p['nome']} em {dias} dias")
                 elif dias < 0: st.error(f"❌ VENCIDO: {p['nome']}")
             except: pass
+
 
 
