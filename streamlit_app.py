@@ -14,20 +14,19 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# NOVO COMANDO PARA FORÇAR PERMISSÃO
-st.markdown("""
-    <script>
-    async function pedirCamera() {
-        try {
-            await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-            console.log("Câmera liberada");
-        } catch (err) {
-            console.error("Erro ao pedir câmera: ", err);
-        }
-    }
-    // Chama a função assim que o app carrega
-    pedirCamera();
-    </script>
+# BOTÃO DE ATIVAÇÃO MANUAL DE CÂMERA
+if st.sidebar.button("🔓 Ativar Câmera (Clique aqui se não abrir)"):
+    st.markdown("""
+        <script>
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(function(stream) { 
+                alert("Câmera Liberada! Pode usar o scanner.");
+                stream.getTracks().forEach(track => track.stop());
+            })
+            .catch(function(err) { 
+                alert("Erro: Vá nas configurações do Chrome e permita a câmera.");
+            });
+        </script>
     """, unsafe_allow_html=True)
 
 # --- CONFIGURAÇÃO DO FIREBASE ---
@@ -205,4 +204,5 @@ elif menu == "⚠️ Alertas":
                 elif dias < 0:
                     st.error(f"❌ **VENCIDO:** {p['nome']} (Data: {v_dt.strftime('%d/%m/%Y')})")
             except: pass
+
 
