@@ -14,12 +14,19 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- FORÇAR PEDIDO DE PERMISSÃO DE CÂMERA (PARA APP INSTALADO) ---
+# NOVO COMANDO PARA FORÇAR PERMISSÃO
 st.markdown("""
     <script>
-    navigator.mediaDevices.getUserMedia({ video: true })
-    .then(function(stream) { console.log("Câmera autorizada"); })
-    .catch(function(err) { console.log("Erro de permissão: " + err); });
+    async function pedirCamera() {
+        try {
+            await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            console.log("Câmera liberada");
+        } catch (err) {
+            console.error("Erro ao pedir câmera: ", err);
+        }
+    }
+    // Chama a função assim que o app carrega
+    pedirCamera();
     </script>
     """, unsafe_allow_html=True)
 
@@ -198,3 +205,4 @@ elif menu == "⚠️ Alertas":
                 elif dias < 0:
                     st.error(f"❌ **VENCIDO:** {p['nome']} (Data: {v_dt.strftime('%d/%m/%Y')})")
             except: pass
+
