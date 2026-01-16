@@ -9,6 +9,10 @@ import numpy as np
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Alves Gestão Mobile", page_icon="🍱", layout="centered")
 
+# --- INICIALIZAÇÃO DA MEMÓRIA (SESSION STATE) ---
+if 'codigo_lido' not in st.session_state:
+    st.session_state.codigo_lido = ""
+
 # --- CONFIGURAÇÃO DO FIREBASE ---
 URL_BASE = "https://restaurante-alves-default-rtdb.firebaseio.com/"
 
@@ -16,27 +20,22 @@ URL_BASE = "https://restaurante-alves-default-rtdb.firebaseio.com/"
 def ler_codigo_da_foto(image_file):
     if image_file is not None:
         try:
-            # Converte para OpenCV
             file_bytes = np.asarray(bytearray(image_file.read()), dtype=np.uint8)
             img = cv2.imdecode(file_bytes, 1)
-            
-            # Detector de código de barras
             detector = cv2.barcode.BarcodeDetector()
-            ok, decoded_info, decoded_type, points = detector.detectAndDecode(img)
-            
+            ok, decoded_info, _, _ = detector.detectAndDecode(img)
             if ok and decoded_info[0]:
                 return decoded_info[0]
             
-            # Tenta QR Code
             qr_detector = cv2.QRCodeDetector()
             ok_qr, val, _, _ = qr_detector.detectAndDecode(img)
             if ok_qr and val:
                 return val
         except Exception as e:
             st.error(f"Erro no processamento: {e}")
-    return ""
+    return None
 
-# --- BANCO DE DADOS ---
+# --- FUNÇÕES DB ---
 def get_db(path):
     try:
         res = requests.get(f"{URL_BASE}/{path}.json")
@@ -52,70 +51,69 @@ st.markdown("""
     <style>
     .stApp { background-color: #f4f7f6; }
     .stButton>button { width: 100%; border-radius: 12px; height: 55px; background-color: #1e3c72; color: white; }
-    [data-testid="stFileUploader"] { background-color: #ffffff; border: 2px dashed #1e3c72; border-radius: 10px; padding: 10px; }
+    div[data-testid="stFileUploader"] { background-color: white; border: 2px dashed #1e3c72; border-radius: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
 # --- MENU ---
-menu = st.sidebar.selectbox("Menu", ["Início", "📦 Estoque", "🥗 Nutricionista", "👨‍🍳 Cozinheiro", "🏷️ Etiquetas", "⚠️ Alertas", "📚 Histórico"])
+menu = st.sidebar.selectbox("Menu", ["📦 Estoque", "🥗 Nutricionista", "👨‍🍳 Cozinheiro", "⚠️ Alertas", "📚 Histórico"])
 
-if menu == "Início":
-    st.title("ALVES GESTÃO 🍱")
-    st.info("Sistema de Estoque Mobile")
-
-elif menu == "📦 Estoque":
-    aba = st.tabs(["Cadastrar", "Reposição", "Baixa"])
+if menu == "📦 Estoque":
+    # Definimos qual aba ficará aberta usando o Session State
+    aba_selecionada = st.radio("Ação:", ["Cadastrar", "Reposição", "Baixa"], horizontal=True)
     
-    for i, nome_aba in enumerate(["cad", "rep", "bx"]):
-        with aba[i]:
-            st.write(f"### 📷 Ler Código ({nome_aba.upper()})")
-            
-            # MUDANÇA CHAVE: file_uploader com captura de câmera direta
-            foto = st.file_uploader("Clique para Abrir a Câmera", type=['jpg', 'png', 'jpeg'], key=f"cam_{nome_aba}")
-            
-            codigo_detectado = ""
-            if foto:
-                codigo_detectado = ler_codigo_da_foto(foto)
-                if codigo_detectado:
-                    st.success(f"✅ Identificado: {codigo_detectado}")
-                else:
-                    st.warning("⚠️ Não li as barras. Tente outra foto mais nítida.")
+    st.divider()
+    st.write(f"### 📷 Scanner para {aba_selecionada}")
+    
+    # Uploader que abre a câmera
+    foto = st.file_uploader("Toque para tirar foto do código", type=['jpg', 'png', 'jpeg'], key="uploader_estoque")
+    
+    if foto:
+        resultado = ler_codigo_da_foto(foto)
+        if resultado:
+            st.session_state.codigo_lido = resultado
+            st.success(f"✅ Código capturado: {resultado}")
+        else:
+            st.warning("⚠️ Não foi possível ler. Tente focar melhor.")
 
-            cod = st.text_input("Código:", value=codigo_detectado, key=f"input_{nome_aba}")
-            
-            if nome_aba == "cad":
-                n = st.text_input("Nome do Produto")
-                est = st.number_input("Qtd Atual", min_value=0.0)
-                if st.button("💾 SALVAR PRODUTO"):
-                    if cod and n:
-                        save_db(f"produtos/{cod}", {"nome": n, "estoque": est, "vencimento": str(datetime.now().date())})
-                        st.success("Salvo!")
+    # O campo de texto agora "escuta" o que está na memória
+    cod = st.text_input("Número do Código:", value=st.session_state.codigo_lido)
+    
+    if aba_selecionada == "Cadastrar":
+        n = st.text_input("Nome do Produto")
+        est = st.number_input("Qtd Inicial", min_value=0.0)
+        if st.button("💾 SALVAR NOVO"):
+            if cod and n:
+                save_db(f"produtos/{cod}", {"nome": n, "estoque": est, "vencimento": str(datetime.now().date())})
+                st.success("Produto salvo!")
+                st.session_state.codigo_lido = "" # Limpa a memória após salvar
 
-            elif nome_aba == "rep":
-                qtd = st.number_input("Adicionar", min_value=0.0)
-                if st.button("➕ Confirmar"):
-                    p = get_db(f"produtos/{cod}")
-                    if p:
-                        save_db(f"produtos/{cod}", {"estoque": p.get('estoque', 0) + qtd})
-                        st.success("Estoque Atualizado!")
+    elif aba_selecionada == "Reposição":
+        qtd = st.number_input("Adicionar quantidade", min_value=0.0)
+        if st.button("➕ CONFIRMAR ENTRADA"):
+            p = get_db(f"produtos/{cod}")
+            if p:
+                save_db(f"produtos/{cod}", {"estoque": p.get('estoque', 0) + qtd})
+                st.success("Estoque atualizado!")
+                st.session_state.codigo_lido = ""
 
-            elif nome_aba == "bx":
-                qtd = st.number_input("Retirar", min_value=0.0)
-                if st.button("📉 Confirmar"):
-                    p = get_db(f"produtos/{cod}")
-                    if p and p['estoque'] >= qtd:
-                        save_db(f"produtos/{cod}", {"estoque": p['estoque'] - qtd})
-                        st.warning("Baixa realizada!")
+    elif aba_selecionada == "Baixa":
+        qtd = st.number_input("Retirar quantidade", min_value=0.0)
+        if st.button("📉 CONFIRMAR SAÍDA"):
+            p = get_db(f"produtos/{cod}")
+            if p and p['estoque'] >= qtd:
+                save_db(f"produtos/{cod}", {"estoque": p['estoque'] - qtd})
+                st.warning("Baixa realizada!")
+                st.session_state.codigo_lido = ""
 
-# --- (Restante do código de Nutri, Cozinha e Alertas segue igual) ---
 elif menu == "👨‍🍳 Cozinheiro":
     st.header("Cozinha")
     hoje = datetime.now().strftime("%Y%m%d")
     d = get_db(f"cardapios/{hoje}")
     if d:
         st.info(f"**CARDÁPIO:**\n{d['cardapio']}")
-        st.success(f"**RETIRADA:**\n{d['ficha']}")
-    else: st.warning("Sem cardápio hoje.")
+        st.success(f"**LISTA DE RETIRADA:**\n{d['ficha']}")
+    else: st.warning("Sem cardápio para hoje.")
 
 elif menu == "⚠️ Alertas":
     st.header("Alertas")
@@ -124,6 +122,7 @@ elif menu == "⚠️ Alertas":
         for c, p in prods.items():
             if p['estoque'] <= p.get('minimo', 0):
                 st.error(f"🚨 ESTOQUE BAIXO: {p['nome']} ({p['estoque']})")
+
 
 
 
