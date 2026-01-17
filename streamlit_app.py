@@ -1,88 +1,71 @@
 import streamlit as st
 import requests
 import json
-from datetime import datetime
-import cv2
-import numpy as np
+from streamlit_quagga2 import st_quagga2
 
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Alves Gestão", page_icon="🍱")
 
 URL_BASE = "https://restaurante-alves-default-rtdb.firebaseio.com/"
 
-# --- 1. RECUPERAR CÓDIGO DA URL (Caso o app reinicie) ---
-# Se o app reiniciar, ele olha para o link e puxa o código de lá
-query_params = st.query_params
-codigo_na_url = query_params.get("cod", "")
-
-# --- 2. FUNÇÃO DE LEITURA ---
-def ler_imagem(arquivo):
-    try:
-        file_bytes = np.asarray(bytearray(arquivo.read()), dtype=np.uint8)
-        img = cv2.imdecode(file_bytes, 1)
-        detector = cv2.barcode.BarcodeDetector()
-        ok, info, _, _ = detector.detectAndDecode(img)
-        if ok and info[0]: return info[0]
-        
-        qd = cv2.QRCodeDetector()
-        ok_q, info_q, _, _ = qd.detectAndDecode(img)
-        if ok_q: return info_q
-    except: return None
-    return None
-
 st.title("ALVES GESTÃO 🍱")
 
-# --- 3. ÁREA DE CAPTURA ---
-st.subheader("📷 Passo 1: Tirar Foto")
-foto = st.file_uploader("Toque para abrir a câmera", type=['jpg', 'jpeg', 'png'], key="uploader")
+# --- CSS PARA DEIXAR O SCANNER BONITO NO CELULAR ---
+st.markdown("""
+    <style>
+    #video-container video { width: 100%; border-radius: 15px; border: 3px solid #1e3c72; }
+    .stButton>button { width: 100%; height: 60px; border-radius: 15px; font-weight: bold; }
+    </style>
+    """, unsafe_allow_html=True)
 
-if foto:
-    if st.button("🔍 PROCESSAR E SALVAR"):
-        resultado = ler_imagem(foto)
-        if resultado:
-            # O SEGREDO: Salva o código nos parâmetros da URL e recarrega
-            st.query_params["cod"] = resultado
-            st.success(f"Código detectado: {resultado}")
-            st.rerun()
-        else:
-            st.error("Não foi possível ler as barras. Tente novamente.")
+# --- 1. SCANNER AO VIVO (Não sai do App) ---
+st.subheader("📷 Escanear Código")
+st.info("Aponte a câmera para o código de barras. Ele lerá automaticamente.")
 
+# Este componente abre a câmera DENTRO do site
+# Ele tenta evitar o bloqueio de permissão sendo um componente direto
+barcode = st_quagga2(key='scanner')
+
+if barcode:
+    st.success(f"✅ Lido: {barcode}")
+    st.session_state.cod_final = barcode
+
+# --- 2. FORMULÁRIO DE ESTOQUE ---
 st.divider()
 
-# --- 4. FORMULÁRIO DE ESTOQUE ---
-st.subheader("📦 Passo 2: Finalizar")
+if "cod_final" not in st.session_state:
+    st.session_state.cod_final = ""
 
-# O campo de texto agora puxa automaticamente o que está na URL
-cod_final = st.text_input("Código do Produto", value=codigo_na_url)
+# O funcionário pode ajustar manualmente se o scanner falhar
+cod_input = st.text_input("Código do Produto:", value=st.session_state.cod_final)
 
-with st.form("estoque_form"):
+with st.form("alves_form"):
     aba = st.radio("Operação", ["Reposição", "Baixa", "Cadastrar"], horizontal=True)
+    qtd = st.number_input("Quantidade", min_value=0.0, step=1.0)
     
     nome_p = ""
     if aba == "Cadastrar":
-        nome_p = st.text_input("Nome do Produto")
+        nome_p = st.text_input("Nome do Novo Produto")
         
-    qtd = st.number_input("Quantidade", min_value=0.0, step=1.0)
-    
-    confirmar = st.form_submit_button("GRAVAR NO SISTEMA")
+    confirmar = st.form_submit_button("CONCLUIR")
 
 if confirmar:
-    if not cod_final:
-        st.error("Erro: Sem código de barras!")
+    if not cod_input:
+        st.error("Erro: Sem código!")
     else:
-        path = f"produtos/{cod_final}"
+        path = f"produtos/{cod_input}"
         if aba == "Cadastrar":
             if nome_p:
                 requests.patch(f"{URL_BASE}/{path}.json", data=json.dumps({"nome": nome_p, "estoque": qtd}))
-                st.success("Cadastrado!")
-            else: st.warning("Informe o nome.")
+                st.success("✅ Cadastrado!")
+            else: st.warning("Digite o nome!")
         else:
             res = requests.get(f"{URL_BASE}/{path}.json").json()
             if res:
-                novo = res.get('estoque', 0) + qtd if aba == "Reposição" else res.get('estoque', 0) - qtd
+                atual = res.get('estoque', 0)
+                novo = atual + qtd if aba == "Reposição" else atual - qtd
                 requests.patch(f"{URL_BASE}/{path}.json", data=json.dumps({"estoque": novo}))
-                st.success(f"Sucesso! Novo saldo: {novo}")
-                # Limpa a URL para o próximo produto
-                st.query_params.clear()
+                st.success(f"✅ Sucesso! Novo saldo: {novo}")
             else:
-                st.error("Produto não encontrado!")
+                st.error("❌ Produto não encontrado!")
+
