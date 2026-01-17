@@ -2,4 +2,4 @@ streamlit
 requests
 opencv-python-headless
 numpy
-streamlit-quagga2
+
