@@ -3,7 +3,6 @@ import requests
 import json
 from PIL import Image, ImageOps, ImageEnhance
 from pyzbar.pyzbar import decode
-import numpy as np
 
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Alves Gestão", page_icon="🍱")
@@ -21,20 +20,22 @@ foto = st.camera_input("Aponte para o código de barras")
 
 if foto:
     try:
-        # Abre a imagem
         img = Image.open(foto)
         
-        # --- TRATAMENTO DE IMAGEM PARA LEITURA ---
-        # 1. Converter para escala de cinza (ajuda o leitor a focar nas barras)
-        img_processada = ImageOps.grayscale(img)
-        # 2. Aumentar o contraste (deixa o preto mais preto e o branco mais branco)
-        enhancer = ImageEnhance.Contrast(img_processada)
-        img_processada = enhancer.enhance(2.0) 
+        # --- TRATAMENTO DE IMAGEM AVANÇADO ---
+        # 1. Aumentar o tamanho da imagem (Zoom Digital para barras pequenas)
+        w, h = img.size
+        img = img.resize((w*2, h*2), resample=Image.LANCZOS)
+        
+        # 2. Converter para Cinza e aumentar Contraste agressivamente
+        img_proc = ImageOps.grayscale(img)
+        img_proc = ImageEnhance.Contrast(img_proc).enhance(3.0) 
+        img_proc = ImageEnhance.Sharpness(img_proc).enhance(2.0)
         
         # Tenta ler a imagem tratada
-        resultados = decode(img_processada)
+        resultados = decode(img_proc)
         
-        # Se não ler na primeira, tenta na imagem original também
+        # Se falhar, tenta na imagem original (caso o tratamento tenha borrado)
         if not resultados:
             resultados = decode(img)
         
@@ -42,16 +43,21 @@ if foto:
             codigo_lido = resultados[0].data.decode('utf-8')
             st.session_state.codigo_estoque = codigo_lido
             st.success(f"✅ Código identificado: {codigo_lido}")
-            st.balloons() # Efeito visual de sucesso
+            st.vibrate() # Vibra o celular se o navegador permitir
         else:
-            st.warning("⚠️ O código está nítido, mas o sistema não reconheceu as barras. Tente aproximar um pouco mais ou manter o código bem horizontal.")
+            st.error("⚠️ Não foi possível decodificar. Siga as instruções abaixo:")
+            st.write("""
+            * **Distância:** Mantenha o celular a um palmo de distância (15-20cm).
+            * **Luz:** Evite sombras ou reflexos brilhantes em cima das barras.
+            * **Alinhamento:** Deixe o código bem "deitado" (horizontal) na tela.
+            """)
             
     except Exception as e:
-        st.error("Erro técnico no processamento. Tente novamente.")
+        st.error("Erro no processamento da imagem.")
 
 st.divider()
 
-# --- ÁREA DE DADOS (O restante continua igual) ---
+# --- ÁREA DE DADOS ---
 st.subheader("📦 2. Confirmar Dados")
 cod_final = st.text_input("Código do Produto", value=st.session_state.codigo_estoque)
 
