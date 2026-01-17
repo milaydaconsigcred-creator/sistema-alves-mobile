@@ -9,7 +9,8 @@ import numpy as np
 st.set_page_config(page_title="Alves Gestão", page_icon="🍱", layout="centered")
 
 # --- INICIALIZAÇÃO DA MEMÓRIA ---
-# Criamos o estado do campo de texto se ele não existir
+if "codigo_detectado" not in st.session_state:
+    st.session_state.codigo_detectado = ""
 if "campo_codigo" not in st.session_state:
     st.session_state.campo_codigo = ""
 
@@ -17,37 +18,28 @@ if "campo_codigo" not in st.session_state:
 URL_BASE = "https://restaurante-alves-default-rtdb.firebaseio.com/"
 
 # --- FUNÇÃO DE LEITURA (OPENCV) ---
-def processar_foto():
-    if st.session_state.uploader_estoque is not None:
-        try:
-            # Lendo a imagem
-            file_bytes = np.asarray(bytearray(st.session_state.uploader_estoque.read()), dtype=np.uint8)
-            img = cv2.imdecode(file_bytes, 1)
+def ler_codigo_da_foto(image_file):
+    try:
+        file_bytes = np.asarray(bytearray(image_file.read()), dtype=np.uint8)
+        img = cv2.imdecode(file_bytes, 1)
+        
+        # Tentativa 1: Código de Barras
+        detector = cv2.barcode.BarcodeDetector()
+        ok, decoded_info, _, _ = detector.detectAndDecode(img)
+        if ok and decoded_info[0]:
+            return decoded_info[0]
+        
+        # Tentativa 2: QR Code
+        qr_detector = cv2.QRCodeDetector()
+        ok_qr, val, _, _ = qr_detector.detectAndDecode(img)
+        if ok_qr and val:
+            return val
             
-            # Detector de código de barras
-            detector = cv2.barcode.BarcodeDetector()
-            ok, decoded_info, _, _ = detector.detectAndDecode(img)
-            
-            codigo = ""
-            if ok and decoded_info[0]:
-                codigo = decoded_info[0]
-            else:
-                # Tenta QR Code caso falhe o de barras
-                qr_detector = cv2.QRCodeDetector()
-                ok_qr, val, _, _ = qr_detector.detectAndDecode(img)
-                if ok_qr and val:
-                    codigo = val
-            
-            if codigo:
-                # O PULO DO GATO: Grava direto na chave do campo de texto
-                st.session_state.campo_codigo = codigo
-            else:
-                st.warning("⚠️ Código não detectado. Tente focar melhor nas barras.")
-                
-        except Exception as e:
-            st.error(f"Erro ao processar: {e}")
+    except Exception as e:
+        st.error(f"Erro no processamento: {e}")
+    return None
 
-# --- FUNÇÕES BANCO DE DADOS ---
+# --- FUNÇÕES DB ---
 def get_db(path):
     try:
         res = requests.get(f"{URL_BASE}/{path}.json")
@@ -56,7 +48,7 @@ def get_db(path):
 
 def save_db(path, data):
     try: requests.patch(f"{URL_BASE}/{path}.json", data=json.dumps(data))
-    except: st.error("Erro ao conectar.")
+    except: st.error("Erro de conexão.")
 
 # --- INTERFACE ---
 st.title("ALVES GESTÃO 🍱")
@@ -65,20 +57,29 @@ menu = st.sidebar.selectbox("Menu", ["📦 Estoque", "🥗 Nutricionista", "👨
 
 if menu == "📦 Estoque":
     aba = st.radio("Operação:", ["Cadastrar", "Reposição", "Baixa"], horizontal=True)
-    
     st.write(f"### 📷 Leitor para {aba}")
     
-    # Botão de Câmera
-    st.file_uploader(
-        "Toque aqui para abrir a Câmera", 
-        type=['jpg', 'png', 'jpeg'], 
-        key="uploader_estoque", 
-        on_change=processar_foto
-    )
+    # 1. Botão de Câmera
+    foto = st.file_uploader("Toque aqui para tirar foto", type=['jpg', 'png', 'jpeg'], key="uploader")
     
-    # CAMPO DE TEXTO VINCULADO À MEMÓRIA
-    # O valor 'value' não é mais necessário aqui pois a 'key' faz o trabalho
-    cod = st.text_input("Número do Código de Barras:", key="campo_codigo")
+    if foto:
+        with st.spinner("Buscando código na imagem..."):
+            res = ler_codigo_da_foto(foto)
+            if res:
+                st.session_state.codigo_detectado = res
+                st.session_state.campo_codigo = res # Força a entrada no campo
+                st.success(f"✅ Código encontrado: {res}")
+            else:
+                st.error("❌ Código não lido. Tente novamente com mais luz.")
+
+    # 2. Campo de Texto (VINCULADO AO SESSION STATE)
+    # Usamos o 'value' apontando para a memória
+    cod = st.text_input("Número do Código de Barras:", value=st.session_state.campo_codigo)
+    
+    # Sincroniza se o usuário digitar manualmente
+    st.session_state.campo_codigo = cod
+
+    st.divider()
 
     if aba == "Cadastrar":
         n = st.text_input("Nome do Produto")
@@ -97,7 +98,7 @@ if menu == "📦 Estoque":
             if p:
                 nova_qtd = p.get('estoque', 0) + qtd
                 save_db(f"produtos/{cod}", {"estoque": nova_qtd})
-                st.success(f"✅ Estoque atualizado para {nova_qtd}")
+                st.success(f"✅ Atualizado para {nova_qtd}")
                 st.session_state.campo_codigo = ""
                 st.rerun()
             else:
@@ -114,8 +115,9 @@ if menu == "📦 Estoque":
                 st.session_state.campo_codigo = ""
                 st.rerun()
             else:
-                st.error("❌ Saldo insuficiente ou produto inexistente.")
+                st.error("❌ Saldo insuficiente.")
 
+# --- RESTANTE DO CÓDIGO (NUTRI, COZINHA) SEGUE O MESMO PADRÃO ---
 elif menu == "👨‍🍳 Cozinheiro":
     st.header("Cozinha")
     hoje = datetime.now().strftime("%Y%m%d")
@@ -123,15 +125,6 @@ elif menu == "👨‍🍳 Cozinheiro":
     if d:
         st.info(f"**CARDÁPIO:**\n{d['cardapio']}")
         st.success(f"**RETIRADA:**\n{d['ficha']}")
-    else: st.warning("Aguardando cardápio de hoje.")
-
-elif menu == "⚠️ Alertas":
-    st.header("Alertas")
-    prods = get_db("produtos")
-    if prods:
-        for c, p in prods.items():
-            if p['estoque'] <= p.get('minimo', 0):
-                st.error(f"🚨 ESTOQUE BAIXO: {p['nome']} (Saldo: {p['estoque']})")
 
 
 
