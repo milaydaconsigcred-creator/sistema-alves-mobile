@@ -1,67 +1,72 @@
 import streamlit as st
 import requests
 import json
-from datetime import datetime
-from streamlit_quagga2 import st_quagga2
+import cv2
+import numpy as np
 
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Alves Gestão", page_icon="🍱")
 
-# Banco de Dados
+# Inicializa a memória para o código não sumir
+if "codigo_estoque" not in st.session_state:
+    st.session_state.codigo_estoque = ""
+
 URL_BASE = "https://restaurante-alves-default-rtdb.firebaseio.com/"
 
 st.title("ALVES GESTÃO 🍱")
 
-# --- SCANNER AO VIVO ---
-st.subheader("📷 Escanear Código")
-st.write("Aponte para o código. O celular vai ler sozinho.")
+# --- ÁREA DO SCANNER ---
+st.subheader("📷 1. Escanear")
+foto = st.camera_input("Tire foto do código de barras")
 
-# Abre a câmera DENTRO do navegador
-barcode = st_quagga2(key='scanner')
-
-# Memória do código
-if "cod_final" not in st.session_state:
-    st.session_state.cod_final = ""
-
-if barcode:
-    st.session_state.cod_final = barcode
-    st.success(f"✅ Lido: {barcode}")
+if foto:
+    # Processa a foto na hora
+    file_bytes = np.asarray(bytearray(foto.read()), dtype=np.uint8)
+    img = cv2.imdecode(file_bytes, 1)
+    detector = cv2.barcode.BarcodeDetector()
+    ok, info, _, _ = detector.detectAndDecode(img)
+    
+    if ok and info[0]:
+        st.session_state.codigo_estoque = info[0]
+        st.success(f"✅ Código: {info[0]}")
+    else:
+        st.warning("⚠️ Não leu. Tente focar melhor ou limpar a lente.")
 
 st.divider()
 
-# --- FORMULÁRIO ---
-with st.form("alves_form"):
-    # Se o scanner leu, o número aparece aqui automaticamente
-    cod_input = st.text_input("Código do Produto:", value=st.session_state.cod_final)
-    
-    aba = st.radio("Operação", ["Reposição", "Baixa", "Cadastrar"], horizontal=True)
+# --- ÁREA DE DADOS ---
+st.subheader("📦 2. Confirmar")
+
+# O campo puxa o que foi lido, mas aceita digitação se a câmera falhar
+cod_final = st.text_input("Código do Produto", value=st.session_state.codigo_estoque)
+
+with st.form("estoque_form"):
+    operacao = st.radio("Ação", ["Reposição", "Baixa", "Cadastrar"], horizontal=True)
     qtd = st.number_input("Quantidade", min_value=0.0, step=1.0)
     
-    nome_p = ""
-    if aba == "Cadastrar":
-        nome_p = st.text_input("Nome do Novo Produto")
+    nome_item = ""
+    if operacao == "Cadastrar":
+        nome_item = st.text_input("Nome do Produto")
         
-    confirmar = st.form_submit_button("CONCLUIR")
+    enviar = st.form_submit_button("CONCLUIR")
 
-if confirmar:
-    if not cod_input:
-        st.error("Erro: Sem código!")
+if enviar:
+    if not cod_final:
+        st.error("Erro: Falta o código!")
     else:
-        path = f"produtos/{cod_input}"
-        if aba == "Cadastrar":
-            if nome_p:
-                requests.patch(f"{URL_BASE}/{path}.json", data=json.dumps({"nome": nome_p, "estoque": qtd}))
-                st.success("✅ Cadastrado!")
-            else: st.warning("Digite o nome!")
+        path = f"produtos/{cod_final}"
+        if operacao == "Cadastrar":
+            if nome_item:
+                requests.patch(f"{URL_BASE}/{path}.json", data=json.dumps({"nome": nome_item, "estoque": qtd}))
+                st.success("✅ Produto Cadastrado!")
+            else: st.error("Falta o nome!")
         else:
-            # Busca no Firebase
             res = requests.get(f"{URL_BASE}/{path}.json").json()
             if res:
                 atual = res.get('estoque', 0)
-                novo = atual + qtd if aba == "Reposição" else atual - qtd
+                novo = atual + qtd if operacao == "Reposição" else atual - qtd
                 requests.patch(f"{URL_BASE}/{path}.json", data=json.dumps({"estoque": novo}))
                 st.success(f"✅ Sucesso! Novo saldo: {novo}")
-                st.session_state.cod_final = "" # Limpa para o próximo
+                st.session_state.codigo_estoque = "" # Limpa para o próximo
             else:
                 st.error("❌ Produto não encontrado!")
-
