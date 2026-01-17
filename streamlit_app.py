@@ -2,7 +2,9 @@ import streamlit as st
 import requests
 import json
 from PIL import Image, ImageOps, ImageEnhance
+import pytesseract
 from pyzbar.pyzbar import decode
+import re
 
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Alves Gestão", page_icon="🍱")
@@ -15,45 +17,38 @@ URL_BASE = "https://restaurante-alves-default-rtdb.firebaseio.com/"
 st.title("ALVES GESTÃO 🍱")
 
 # --- ÁREA DO SCANNER ---
-st.subheader("📷 1. Escanear")
-foto = st.camera_input("Aponte para o código de barras")
+st.subheader("📷 1. Escanear ou Fotografar Números")
+foto = st.camera_input("Tire foto do código ou dos números")
 
 if foto:
     try:
         img = Image.open(foto)
         
-        # --- TRATAMENTO DE IMAGEM AVANÇADO ---
-        # 1. Aumentar o tamanho da imagem (Zoom Digital para barras pequenas)
-        w, h = img.size
-        img = img.resize((w*2, h*2), resample=Image.LANCZOS)
+        # --- TRATAMENTO PARA OCR ---
+        img_gray = ImageOps.grayscale(img)
+        img_gray = ImageEnhance.Contrast(img_gray).enhance(2.5)
         
-        # 2. Converter para Cinza e aumentar Contraste agressivamente
-        img_proc = ImageOps.grayscale(img)
-        img_proc = ImageEnhance.Contrast(img_proc).enhance(3.0) 
-        img_proc = ImageEnhance.Sharpness(img_proc).enhance(2.0)
+        # 1. Tenta ler Código de Barras primeiro (é mais preciso)
+        barras = decode(img)
         
-        # Tenta ler a imagem tratada
-        resultados = decode(img_proc)
-        
-        # Se falhar, tenta na imagem original (caso o tratamento tenha borrado)
-        if not resultados:
-            resultados = decode(img)
-        
-        if resultados:
-            codigo_lido = resultados[0].data.decode('utf-8')
-            st.session_state.codigo_estoque = codigo_lido
-            st.success(f"✅ Código identificado: {codigo_lido}")
-            st.vibrate() # Vibra o celular se o navegador permitir
+        if barras:
+            codigo = barras[0].data.decode('utf-8')
+            st.session_state.codigo_estoque = codigo
+            st.success(f"✅ Barras lidas: {codigo}")
         else:
-            st.error("⚠️ Não foi possível decodificar. Siga as instruções abaixo:")
-            st.write("""
-            * **Distância:** Mantenha o celular a um palmo de distância (15-20cm).
-            * **Luz:** Evite sombras ou reflexos brilhantes em cima das barras.
-            * **Alinhamento:** Deixe o código bem "deitado" (horizontal) na tela.
-            """)
+            # 2. Se falhar, tenta ler os NÚMEROS (OCR)
+            texto = pytesseract.image_to_string(img_gray, config='--psm 6 digits')
+            # Limpa o texto para deixar apenas números
+            numeros = re.sub(r'\D', '', texto)
             
+            if len(numeros) >= 5: # Filtro para evitar ler "sujeira"
+                st.session_state.codigo_estoque = numeros
+                st.success(f"✅ Números detectados: {numeros}")
+            else:
+                st.warning("⚠️ Não consegui ler as barras nem os números. Tente focar apenas nos números do produto.")
+                
     except Exception as e:
-        st.error("Erro no processamento da imagem.")
+        st.error("Erro ao processar a imagem.")
 
 st.divider()
 
@@ -80,7 +75,6 @@ if enviar:
             if nome_item:
                 requests.patch(f"{URL_BASE}/{path}.json", data=json.dumps({"nome": nome_item, "estoque": qtd}))
                 st.success("✅ Cadastrado com sucesso!")
-                st.session_state.codigo_estoque = ""
             else: st.error("Falta o nome!")
         else:
             res = requests.get(f"{URL_BASE}/{path}.json").json()
@@ -92,3 +86,4 @@ if enviar:
                 st.session_state.codigo_estoque = ""
             else:
                 st.error("❌ Produto não encontrado!")
+
