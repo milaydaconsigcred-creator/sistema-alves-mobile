@@ -73,14 +73,14 @@ with tab_estoque:
             else:
                 res = requests.get(f"{URL_BASE}{path}.json").json()
                 if res:
-                    novo_total = (res['estoque'] + qtd_operacao) if operacao == "Reposição" else (res['estoque'] - qtd_operacao)
+                    novo_total = (res.get('estoque', 0) + qtd_operacao) if operacao == "Reposição" else (res.get('estoque', 0) - qtd_operacao)
                     requests.patch(f"{URL_BASE}{path}.json", json={"estoque": max(0, novo_total)})
                     st.success(f"Estoque atualizado: {max(0, novo_total)} {res.get('unidade', '')}")
                 else: st.error("Produto não existe no cadastro!")
             st.session_state.codigo_lido = ""
 
 # ==========================================
-# ABA 2: ALERTAS (SUB-ABAS)
+# ABA 2: ALERTAS (CORRIGIDO)
 # ==========================================
 with tab_alertas:
     sub1, sub2 = st.tabs(["📉 Estoque Mínimo", "📅 Perto da Validade"])
@@ -88,32 +88,40 @@ with tab_alertas:
     
     with sub1:
         for k, v in produtos.items():
-            if v.get('estoque', 0) <= v.get('minimo', 0):
-                st.error(f"**{v['nome']}** - Estoque Crítico: {v['estoque']} {v['unidade']}")
+            # Verificamos se 'v' não é nulo e se tem os campos necessários antes de ler
+            if v and isinstance(v, dict):
+                estoque = v.get('estoque', 0)
+                minimo = v.get('minimo', 0)
+                nome_item = v.get('nome', 'Sem Nome')
+                if estoque <= minimo:
+                    st.error(f"**{nome_item}** - Estoque Crítico: {estoque}")
                 
     with sub2:
         hoje = datetime.now()
         for k, v in produtos.items():
-            if 'validade' in v:
-                data_v = datetime.strptime(v['validade'], '%Y-%m-%d')
-                if (data_v - hoje).days <= 7:
-                    st.warning(f"**{v['nome']}** vence em {(data_v - hoje).days} dias! ({v['validade']})")
+            if v and isinstance(v, dict) and 'validade' in v:
+                try:
+                    data_v = datetime.strptime(v['validade'], '%Y-%m-%d')
+                    if (data_v - hoje).days <= 7:
+                        st.warning(f"**{v.get('nome', 'Sem Nome')}** vence em {(data_v - hoje).days} dias! ({v['validade']})")
+                except:
+                    continue
 
 # ==========================================
-# ABA 3: NUTRICIONISTA (SENHA E CARDÁPIO)
+# ABA 3: NUTRICIONISTA 
 # ==========================================
 with tab_nutri:
     if not st.session_state.senha_nutri:
         senha = st.text_input("Senha da Nutricionista", type="password")
         if st.button("Acessar"):
-            if senha == "1234": # Altere sua senha aqui
+            if senha == "1234":
                 st.session_state.senha_nutri = True
                 st.rerun()
     else:
         st.subheader("Planejamento Diário")
         with st.form("form_nutri", clear_on_submit=True):
             prato = st.text_input("Prato do Dia")
-            itens_cozinha = st.text_area("Ingredientes e Quantidades (ex: 5kg Arroz, 2kg Feijão)")
+            itens_cozinha = st.text_area("Ingredientes e Quantidades")
             if st.form_submit_button("Enviar para Cozinha"):
                 requests.put(f"{URL_BASE}cardapio_dia.json", json={"prato": prato, "lista": itens_cozinha, "data": str(datetime.now().date())})
                 st.success("Cardápio enviado!")
@@ -129,10 +137,10 @@ with tab_cozinha:
         st.info(f"### Hoje: {dados_c['prato']}")
         st.write("**Lista de Retirada no Estoque:**")
         st.code(dados_c['lista'])
-    else: st.write("Aguardando cardápio da nutricionista para hoje.")
+    else: st.write("Aguardando cardápio da nutricionista.")
 
 # ==========================================
-# ABA 5: ETIQUETAS + QR CODE
+# ABA 5: ETIQUETAS
 # ==========================================
 with tab_etiquetas:
     with st.form("form_etq", clear_on_submit=True):
@@ -141,20 +149,18 @@ with tab_etiquetas:
         e_val = col_e1.date_input("Validade")
         e_man = col_e2.date_input("Data de Manipulação")
         e_qtd = col_e1.text_input("Quantidade/Lote")
-        e_cons = col_e2.selectbox("Conservação", ["Refrigerado", "Congelado", "Temperatura Ambiente"])
+        e_cons = col_e2.selectbox("Conservação", ["Refrigerado", "Congelado", "Ambiente"])
         gerar = st.form_submit_button("GERAR ETIQUETA")
 
     if gerar:
-        # Gerador de QR Code via API Gratuita (Google Charts)
         qr_data = f"Produto: {e_nome} | Val: {e_val}"
         qr_url = f"https://chart.googleapis.com/chart?chs=150x150&cht=qr&chl={qr_data}"
-        
         st.markdown(f"""
-            <div style="border: 2px dashed #000; padding: 15px; width: 350px; background: white; color: black; font-family: Arial;">
+            <div style="border: 2px dashed #000; padding: 15px; width: 350px; background: white; color: black;">
                 <h2 style="margin:0">ALVES GESTÃO</h2>
                 <hr>
                 <p><b>PRODUTO:</b> {e_nome}</p>
-                <p><b>VALIDADE:</b> {e_val.strftime('%d/%m/%Y')} | <b>MANIP.:</b> {e_man.strftime('%d/%m/%Y')}</p>
+                <p><b>VAL.:</b> {e_val.strftime('%d/%m/%Y')} | <b>MANIP.:</b> {e_man.strftime('%d/%m/%Y')}</p>
                 <p><b>QTD:</b> {e_qtd} | <b>CONS.:</b> {e_cons}</p>
                 <img src="{qr_url}" style="display:block; margin:auto;">
             </div>
