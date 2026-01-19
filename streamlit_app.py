@@ -39,7 +39,7 @@ tab_estoque, tab_alertas, tab_nutri, tab_cozinha, tab_etiquetas = st.tabs([
 ])
 
 # ==========================================
-# ABA 1: ESTOQUE (SEPARADO)
+# ABA 1: ESTOQUE 
 # ==========================================
 with tab_estoque:
     operacao = st.radio("Selecione a Operação:", ["Reposição", "Baixa", "Cadastrar Novo"], horizontal=True)
@@ -80,7 +80,7 @@ with tab_estoque:
             st.session_state.codigo_lido = ""
 
 # ==========================================
-# ABA 2: ALERTAS (CORRIGIDO)
+# ABA 2: ALERTAS 
 # ==========================================
 with tab_alertas:
     sub1, sub2 = st.tabs(["📉 Estoque Mínimo", "📅 Perto da Validade"])
@@ -88,7 +88,6 @@ with tab_alertas:
     
     with sub1:
         for k, v in produtos.items():
-            # Verificamos se 'v' não é nulo e se tem os campos necessários antes de ler
             if v and isinstance(v, dict):
                 estoque = v.get('estoque', 0)
                 minimo = v.get('minimo', 0)
@@ -108,7 +107,7 @@ with tab_alertas:
                     continue
 
 # ==========================================
-# ABA 3: NUTRICIONISTA 
+# ABA 3: NUTRICIONISTA (CAMPO MAIOR)
 # ==========================================
 with tab_nutri:
     if not st.session_state.senha_nutri:
@@ -120,8 +119,8 @@ with tab_nutri:
     else:
         st.subheader("Planejamento Diário")
         with st.form("form_nutri", clear_on_submit=True):
-            prato = st.text_input("Prato do Dia")
-            itens_cozinha = st.text_area("Ingredientes e Quantidades")
+            prato = st.text_area("Prato e Descrição do Cardápio", height=150)
+            itens_cozinha = st.text_area("Ingredientes e Quantidades para Retirada", height=150)
             if st.form_submit_button("Enviar para Cozinha"):
                 requests.put(f"{URL_BASE}cardapio_dia.json", json={"prato": prato, "lista": itens_cozinha, "data": str(datetime.now().date())})
                 st.success("Cardápio enviado!")
@@ -134,13 +133,15 @@ with tab_cozinha:
     st.subheader("Cardápio Atualizado")
     dados_c = requests.get(f"{URL_BASE}cardapio_dia.json").json()
     if dados_c and dados_c.get("data") == str(datetime.now().date()):
-        st.info(f"### Hoje: {dados_c['prato']}")
+        st.info(f"### Cardápio de Hoje:")
+        st.write(dados_c['prato'])
+        st.divider()
         st.write("**Lista de Retirada no Estoque:**")
         st.code(dados_c['lista'])
     else: st.write("Aguardando cardápio da nutricionista.")
 
 # ==========================================
-# ABA 5: ETIQUETAS
+# ABA 5: ETIQUETAS (COM BOTÃO IMPRIMIR)
 # ==========================================
 with tab_etiquetas:
     with st.form("form_etq", clear_on_submit=True):
@@ -155,8 +156,10 @@ with tab_etiquetas:
     if gerar:
         qr_data = f"Produto: {e_nome} | Val: {e_val}"
         qr_url = f"https://chart.googleapis.com/chart?chs=150x150&cht=qr&chl={qr_data}"
-        st.markdown(f"""
-            <div style="border: 2px dashed #000; padding: 15px; width: 350px; background: white; color: black;">
+        
+        # HTML da etiqueta
+        etiqueta_html = f"""
+            <div id="print-area" style="border: 2px dashed #000; padding: 15px; width: 350px; background: white; color: black; font-family: Arial;">
                 <h2 style="margin:0">ALVES GESTÃO</h2>
                 <hr>
                 <p><b>PRODUTO:</b> {e_nome}</p>
@@ -164,6 +167,10 @@ with tab_etiquetas:
                 <p><b>QTD:</b> {e_qtd} | <b>CONS.:</b> {e_cons}</p>
                 <img src="{qr_url}" style="display:block; margin:auto;">
             </div>
-        """, unsafe_allow_html=True)
-
+            <br>
+            <button onclick="window.print()" style="padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                🖨️ IMPRIMIR ETIQUETA
+            </button>
+        """
+        st.markdown(etiqueta_html, unsafe_allow_html=True)
 
