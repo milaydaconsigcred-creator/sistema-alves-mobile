@@ -114,7 +114,7 @@ with tab_nutri:
     if not st.session_state.senha_nutri:
         senha = st.text_input("Senha da Nutricionista", type="password")
         if st.button("Acessar"):
-            if senha == "1234":
+            if senha == "alvesnutri":
                 st.session_state.senha_nutri = True
                 st.rerun()
     else:
@@ -165,4 +165,5 @@ with tab_etiquetas:
                 <img src="{qr_url}" style="display:block; margin:auto;">
             </div>
         """, unsafe_allow_html=True)
+
 
