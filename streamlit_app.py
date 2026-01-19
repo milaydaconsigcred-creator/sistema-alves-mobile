@@ -23,54 +23,89 @@ if foto:
     url_vision = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_API_KEY}"
     payload = {
         "requests": [
-            {
-                "image": {"content": imagem_b64},
-                "features": [{"type": "TEXT_DETECTION"}]
-            }
-        ]
+            {import streamlit as st
+import requests
+import json
+import base64
+
+# --- CONFIGURAÇÃO ---
+st.set_page_config(page_title="Alves IA Pro", page_icon="🍱")
+
+# 1. COLE SUA CHAVE AQUI (A que começa com AIza...)
+GOOGLE_API_KEY = "SUA_CHAVE_AQUI" 
+URL_FIREBASE = "https://restaurante-alves-default-rtdb.firebaseio.com/produtos/"
+
+if "codigo_lido" not in st.session_state:
+    st.session_state.codigo_lido = ""
+
+st.title("ALVES GESTÃO + IA 🤖")
+
+# --- CAPTURA DE IMAGEM ---
+foto = st.camera_input("Foque nos números do código de barras")
+
+if foto:
+    # Converter para Base64
+    imagem_b64 = base64.b64encode(foto.read()).decode('utf-8')
+
+    # Chamada para Google Vision
+    url_vision = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_API_KEY}"
+    payload = {
+        "requests": [{
+            "image": {"content": imagem_b64},
+            "features": [{"type": "TEXT_DETECTION"}]
+        }]
     }
 
-    with st.spinner('IA analisando a imagem...'):
-        response = requests.post(url_vision, json=payload)
-        resultado = response.json()
-
-    # 3. Extrair os números do que a IA leu
-    try:
-        texto_completo = resultado['responses'][0]['fullTextAnnotation']['text']
-        # Filtra apenas os números do texto
-        numeros_encontrados = "".join(filter(str.isdigit, texto_completo))
-        
-        if numeros_encontrados:
-            st.session_state.codigo_lido = numeros_encontrados
-            st.success(f"✅ IA Identificou: {numeros_encontrados}")
-        else:
-            st.error("A IA não encontrou números na foto.")
-    except:
-       with st.spinner('IA analisando a imagem...'):
-        # Estas linhas abaixo PRECISAM de 4 espaços (ou um TAB) no início
-        response = requests.post(url_vision, json=payload)
-        resultado = response.json()
-
-    # Agora voltamos para a margem anterior para processar o resultado
-    if 'error' in resultado:
-        st.error(f"Erro do Google: {resultado['error']['message']}")
-    else:
+    with st.spinner('A IA do Google está lendo a imagem...'):
         try:
-            texto_completo = resultado['responses'][0]['fullTextAnnotation']['text']
-            # Filtra apenas os números
-            numeros_encontrados = "".join(filter(str.isdigit, texto_completo))
-            
-            if numeros_encontrados:
-                st.session_state.codigo_lido = numeros_encontrados
-                st.success(f"✅ IA Identificou: {numeros_encontrados}")
+            response = requests.post(url_vision, json=payload)
+            resultado = response.json()
+
+            if 'error' in resultado:
+                st.error(f"Erro do Google: {resultado['error']['message']}")
             else:
-                st.warning("A IA leu a foto, mas não encontrou números nela.")
+                # Extrair texto e limpar deixando apenas números
+                texto = resultado['responses'][0].get('fullTextAnnotation', {}).get('text', '')
+                numeros = "".join(filter(str.isdigit, texto))
+                
+                if numeros:
+                    st.session_state.codigo_lido = numeros
+                    st.success(f"✅ IA Identificou: {numeros}")
+                else:
+                    st.warning("A IA não detectou números. Tente aproximar mais a câmera.")
         except Exception as e:
-            st.error("A IA não conseguiu ler texto nesta imagem. Tente focar melhor nos números.")
-# --- FORMULÁRIO DE ESTOQUE ---
+            st.error("Erro na conexão. Verifique a internet.")
+
 st.divider()
-codigo_final = st.text_input("Confirmar Código", value=st.session_state.get('codigo_lido', ""))
 
-# (O resto do seu código de salvar no Firebase continua igual aqui...)
+# --- FORMULÁRIO DE ESTOQUE ---
+cod_final = st.text_input("Código Identificado", value=st.session_state.codigo_lido)
 
+col1, col2 = st.columns(2)
+with col1:
+    operacao = st.selectbox("Operação", ["Reposição (+)", "Baixa (-)"])
+with col2:
+    quantidade = st.number_input("Qtd", min_value=1, step=1)
+
+if st.button("CONFIRMAR E SALVAR NO FIREBASE", use_container_width=True):
+    if not cod_final:
+        st.error("Falta o código do produto!")
+    else:
+        # Lógica de atualização no Firebase
+        res = requests.get(f"{URL_FIREBASE}{cod_final}.json").json()
+        
+        estoque_atual = res.get('estoque', 0) if res else 0
+        nome_item = res.get('nome', 'Produto Novo') if res else 'Produto Novo'
+        
+        if operacao == "Reposição (+)":
+            novo_total = estoque_atual + quantidade
+        else:
+            novo_total = estoque_atual - quantidade
+
+        dados_atualizados = {"estoque": novo_total}
+        requests.patch(f"{URL_FIREBASE}{cod_final}.json", json=dados_atualizados)
+        
+        st.balloons()
+        st.success(f"Estoque de '{nome_item}' atualizado para {novo_total}!")
+        st.session_state.codigo_lido = "" # Limpa para o próximo
 
