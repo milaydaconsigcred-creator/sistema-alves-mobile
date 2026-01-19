@@ -46,21 +46,31 @@ if foto:
         else:
             st.error("A IA não encontrou números na foto.")
     except:
-        with st.spinner('IA analisando a imagem...'):
+       with st.spinner('IA analisando a imagem...'):
+        # Estas linhas abaixo PRECISAM de 4 espaços (ou um TAB) no início
         response = requests.post(url_vision, json=payload)
         resultado = response.json()
-        
-        # Se houver erro na resposta do Google, ele mostrará aqui:
-        if 'error' in resultado:
-            st.error(f"Erro do Google: {resultado['error']['message']}")
-            if 'details' in resultado['error']:
-                st.write(resultado['error']['details'])
-        else:
-            st.write("Conexão com Google OK!")
 
+    # Agora voltamos para a margem anterior para processar o resultado
+    if 'error' in resultado:
+        st.error(f"Erro do Google: {resultado['error']['message']}")
+    else:
+        try:
+            texto_completo = resultado['responses'][0]['fullTextAnnotation']['text']
+            # Filtra apenas os números
+            numeros_encontrados = "".join(filter(str.isdigit, texto_completo))
+            
+            if numeros_encontrados:
+                st.session_state.codigo_lido = numeros_encontrados
+                st.success(f"✅ IA Identificou: {numeros_encontrados}")
+            else:
+                st.warning("A IA leu a foto, mas não encontrou números nela.")
+        except Exception as e:
+            st.error("A IA não conseguiu ler texto nesta imagem. Tente focar melhor nos números.")
 # --- FORMULÁRIO DE ESTOQUE ---
 st.divider()
 codigo_final = st.text_input("Confirmar Código", value=st.session_state.get('codigo_lido', ""))
 
 # (O resto do seu código de salvar no Firebase continua igual aqui...)
+
 
