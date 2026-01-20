@@ -141,7 +141,7 @@ with tab_cozinha:
     else: st.write("Aguardando cardápio da nutricionista.")
 
 # ==========================================
-# ABA 5: ETIQUETAS (COM BOTÃO IMPRIMIR CORRIGIDO)
+# ABA 5: ETIQUETAS (QR CODE ESTÁVEL + IMPRESSÃO LIMPA)
 # ==========================================
 with tab_etiquetas:
     with st.form("form_etq", clear_on_submit=True):
@@ -154,32 +154,47 @@ with tab_etiquetas:
         gerar = st.form_submit_button("GERAR ETIQUETA")
 
     if gerar:
+        # Nova API de QR Code mais estável
         qr_data = f"Produto: {e_nome} | Val: {e_val}"
-        qr_url = f"https://chart.googleapis.com/chart?chs=150x150&cht=qr&chl={qr_data}"
+        qr_url = f"https://quickchart.io/qr?text={qr_data}&size=150"
         
-        # HTML da etiqueta com script de impressão forçada
+        # HTML com CSS de Impressão (Oculta o resto da página)
         etiqueta_html = f"""
-            <div id="etiqueta-para-imprimir" style="border: 2px dashed #000; padding: 15px; width: 350px; background: white; color: black; font-family: Arial;">
-                <h2 style="margin:0">ALVES GESTÃO</h2>
-                <hr>
-                <p><b>PRODUTO:</b> {e_nome}</p>
-                <p><b>VAL.:</b> {e_val.strftime('%d/%m/%Y')} | <b>MANIP.:</b> {e_man.strftime('%d/%m/%Y')}</p>
-                <p><b>QTD:</b> {e_qtd} | <b>CONS.:</b> {e_cons}</p>
-                <img src="{qr_url}" style="display:block; margin:auto;">
+            <style>
+                @media print {{
+                    body * {{ visibility: hidden; }}
+                    #area-impressao, #area-impressao * {{ visibility: visible; }}
+                    #area-impressao {{ position: absolute; left: 0; top: 0; width: 100%; }}
+                    .no-print {{ display: none !important; }}
+                }}
+                .btn-imprimir {{
+                    padding: 12px 25px;
+                    background-color: #28a745;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    cursor: pointer;
+                    font-size: 16px;
+                    width: 100%;
+                    margin-top: 15px;
+                }}
+            </style>
+            
+            <div id="area-impressao" style="border: 2px solid #000; padding: 20px; width: 320px; background: white; color: black; font-family: Arial; margin: auto;">
+                <h2 style="margin:0; text-align: center;">ALVES GESTÃO</h2>
+                <hr style="border: 1px solid black;">
+                <p style="margin: 5px 0;"><b>PRODUTO:</b> {e_nome}</p>
+                <p style="margin: 5px 0;"><b>VAL.:</b> {e_val.strftime('%d/%m/%Y')}</p>
+                <p style="margin: 5px 0;"><b>MANIP.:</b> {e_man.strftime('%d/%m/%Y')}</p>
+                <p style="margin: 5px 0;"><b>QTD:</b> {e_qtd} | <b>CONS.:</b> {e_cons}</p>
+                <div style="text-align: center; margin-top: 10px;">
+                    <img src="{qr_url}" style="width: 130px; height: 130px; border: 1px solid #eee;">
+                </div>
             </div>
-            <br>
-            <a href="javascript:window.print()" style="text-decoration: none;">
-                <button style="padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; width: 100%;">
-                    🖨️ CLIQUE AQUI PARA IMPRIMIR
-                </button>
-            </a>
-            <script>
-                // Fallback para mobile
-                document.querySelector('button').onclick = function() {{
-                    window.parent.print();
-                }};
-            </script>
+            
+            <button class="no-print btn-imprimir" onclick="window.print()">
+                🖨️ CONFIRMAR E IMPRIMIR ETIQUETA
+            </button>
         """
-        st.components.v1.html(etiqueta_html, height=500)
-
+        st.components.v1.html(etiqueta_html, height=550)
 
