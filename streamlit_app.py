@@ -141,60 +141,73 @@ with tab_cozinha:
     else: st.write("Aguardando cardápio da nutricionista.")
 
 # ==========================================
-# ABA 5: ETIQUETAS (QR CODE ESTÁVEL + IMPRESSÃO LIMPA)
+# ABA 5: ETIQUETAS (PARA PRODUTOS MANIPULADOS)
 # ==========================================
 with tab_etiquetas:
     with st.form("form_etq", clear_on_submit=True):
+        st.info("Produtos Manipulados: Use IDs sequenciais (1, 2, 3...) para rastreio.")
+        
         e_nome = st.text_input("Nome do Produto")
-        col_e1, col_e2 = st.columns(2)
-        e_val = col_e1.date_input("Validade")
-        e_man = col_e2.date_input("Data de Manipulação")
-        e_qtd = col_e1.text_input("Quantidade/Lote")
-        e_cons = col_e2.selectbox("Conservação", ["Refrigerado", "Congelado", "Ambiente"])
+        
+        c_etq1, c_etq2 = st.columns(2)
+        # Permite colocar o número sequencial (ex: 1, 2, 3...)
+        e_cod_ref = c_etq1.text_input("ID do Manipulado (Nº)", value=st.session_state.codigo_lido)
+        e_qtd = c_etq2.text_input("Quantidade/Lote")
+        
+        e_man = c_etq1.date_input("Data de Manipulação", value=datetime.now())
+        e_val = c_etq2.date_input("Nova Validade")
+        
+        e_cons = st.selectbox("Forma de Conservação", ["Refrigerado", "Congelado", "Temperatura Ambiente"])
+        
         gerar = st.form_submit_button("GERAR ETIQUETA")
 
     if gerar:
-        # Nova API de QR Code mais estável
-        qr_data = f"Produto: {e_nome} | Val: {e_val}"
-        qr_url = f"https://quickchart.io/qr?text={qr_data}&size=150"
+        # QR Code baseado no número ID (1, 2, 3...)
+        qr_url = f"https://quickchart.io/qr?text={e_cod_ref}&size=150"
         
-        # HTML com CSS de Impressão (Oculta o resto da página)
         etiqueta_html = f"""
             <style>
                 @media print {{
-                    body * {{ visibility: hidden; }}
-                    #area-impressao, #area-impressao * {{ visibility: visible; }}
-                    #area-impressao {{ position: absolute; left: 0; top: 0; width: 100%; }}
-                    .no-print {{ display: none !important; }}
+                    header, footer, .stAppHeader, [data-testid="stHeader"], .no-print {{ display: none !important; }}
+                    div[data-testid="stVerticalBlock"] > div:not(#area-impressao-pai) {{ display: none !important; }}
+                    body {{ background: white !important; margin: 0; }}
+                    #area-impressao {{ 
+                        visibility: visible !important; 
+                        position: absolute; 
+                        left: 0; top: 0; 
+                        width: 100%; border: none !important;
+                    }}
                 }}
                 .btn-imprimir {{
-                    padding: 12px 25px;
-                    background-color: #28a745;
-                    color: white;
-                    border: none;
-                    border-radius: 5px;
-                    cursor: pointer;
-                    font-size: 16px;
-                    width: 100%;
-                    margin-top: 15px;
+                    padding: 15px; background-color: #28a745; color: white;
+                    border: none; border-radius: 8px; cursor: pointer;
+                    width: 100%; font-weight: bold; margin-top: 20px;
                 }}
             </style>
             
-            <div id="area-impressao" style="border: 2px solid #000; padding: 20px; width: 320px; background: white; color: black; font-family: Arial; margin: auto;">
-                <h2 style="margin:0; text-align: center;">ALVES GESTÃO</h2>
-                <hr style="border: 1px solid black;">
-                <p style="margin: 5px 0;"><b>PRODUTO:</b> {e_nome}</p>
-                <p style="margin: 5px 0;"><b>VAL.:</b> {e_val.strftime('%d/%m/%Y')}</p>
-                <p style="margin: 5px 0;"><b>MANIP.:</b> {e_man.strftime('%d/%m/%Y')}</p>
-                <p style="margin: 5px 0;"><b>QTD:</b> {e_qtd} | <b>CONS.:</b> {e_cons}</p>
-                <div style="text-align: center; margin-top: 10px;">
-                    <img src="{qr_url}" style="width: 130px; height: 130px; border: 1px solid #eee;">
+            <div id="area-impressao-pai">
+                <div id="area-impressao" style="border: 2px solid #000; padding: 15px; width: 280px; background: white; color: black; font-family: Arial; margin: auto;">
+                    <h2 style="margin:0; text-align: center; font-size: 18px;">ALVES GESTÃO</h2>
+                    <p style="margin:0; text-align: center; font-size: 10px;">PRODUTO MANIPULADO</p>
+                    <hr style="border: 1px solid black;">
+                    
+                    <p style="margin: 4px 0; font-size: 13px;"><b>PRODUTO:</b> {e_nome}</p>
+                    <p style="margin: 4px 0; font-size: 13px;"><b>ID/REF:</b> Nº {e_cod_ref}</p>
+                    <p style="margin: 4px 0; font-size: 13px;"><b>MANIP.:</b> {e_man.strftime('%d/%m/%Y')}</p>
+                    <p style="margin: 4px 0; font-size: 13px;"><b>VAL.:</b> {e_val.strftime('%d/%m/%Y')}</p>
+                    <p style="margin: 4px 0; font-size: 13px;"><b>QTD:</b> {e_qtd}</p>
+                    <p style="margin: 4px 0; font-size: 13px;"><b>CONS.:</b> {e_cons}</p>
+                    
+                    <div style="text-align: center; margin-top: 8px;">
+                        <img src="{qr_url}" style="width: 110px; height: 110px;">
+                        <p style="font-size: 9px; margin:0;">Rastreio via App</p>
+                    </div>
                 </div>
             </div>
             
             <button class="no-print btn-imprimir" onclick="window.print()">
-                🖨️ CONFIRMAR E IMPRIMIR ETIQUETA
+                🖨️ IMPRIMIR ETIQUETA Nº {e_cod_ref}
             </button>
         """
-        st.components.v1.html(etiqueta_html, height=550)
+        st.components.v1.html(etiqueta_html, height=600)
 
