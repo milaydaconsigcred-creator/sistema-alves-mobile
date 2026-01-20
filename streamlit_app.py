@@ -141,69 +141,79 @@ with tab_cozinha:
     else: st.write("Aguardando cardápio da nutricionista.")
 
 # ==========================================
-# ABA 5: ETIQUETAS (GERADOR + PESQUISA/HISTÓRICO)
+# ABA 5: ETIQUETAS (SCANNER + HISTÓRICO + IMPRESSÃO)
 # ==========================================
 with tab_etiquetas:
-    aba_gerar, aba_historico = st.tabs(["🆕 Gerar/Editar", "🔍 Pesquisar Etiquetas Salvas"])
+    aba_gerar, aba_historico = st.tabs(["🆕 Gerar/Editar", "🔍 Scanner e Pesquisa"])
 
-    # --- SUB-ABA: PESQUISA ---
+    # --- SUB-ABA: SCANNER E PESQUISA ---
     with aba_historico:
-        st.subheader("Consultar Histórico de Manipulados")
-        busca_termo = st.text_input("Pesquisar por Nome ou ID (QR Code)", value=st.session_state.get('codigo_lido', ""))
+        st.subheader("Buscar Etiqueta Antiga")
         
-        todos_produtos = requests.get(f"{URL_BASE}produtos.json").json() or {}
+        # Scanner de IA específico para a aba de etiquetas
+        foto_etq = st.camera_input("Aponte para o QR Code da etiqueta antiga", key="cam_etiqueta")
+        if foto_etq:
+            imagem_b64 = base64.b64encode(foto_etq.read()).decode('utf-8')
+            url_v = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_API_KEY}"
+            payload = {"requests": [{"image": {"content": imagem_b64}, "features": [{"type": "TEXT_DETECTION"}]}]}
+            try:
+                res_v = requests.post(url_v, json=payload).json()
+                numeros_lidos = "".join(filter(str.isdigit, res_v['responses'][0]['fullTextAnnotation']['text']))
+                if numeros_lidos:
+                    st.session_state.codigo_lido = numeros_lidos
+                    st.success(f"ID Detectado: {numeros_lidos}")
+            except:
+                st.error("Não foi possível ler o QR Code.")
+
+        busca_termo = st.text_input("Ou pesquise por Nome/ID", value=st.session_state.get('codigo_lido', ""))
         
-        encontrados = []
-        for id_prod, info in todos_produtos.items():
-            # Filtra se o termo de busca está no ID ou no Nome
-            if str(busca_termo).lower() in str(id_prod).lower() or str(busca_termo).lower() in str(info.get('nome', '')).lower():
-                encontrados.append({"id": id_prod, **info})
-        
-        if encontrados and busca_termo:
+        if busca_termo:
+            todos_produtos = requests.get(f"{URL_BASE}produtos.json").json() or {}
+            encontrados = []
+            for id_p, info in todos_produtos.items():
+                if str(busca_termo).lower() in str(id_p).lower() or str(busca_termo).lower() in str(info.get('nome', '')).lower():
+                    encontrados.append({"id": id_p, **info})
+            
             for item in encontrados:
-                with st.expander(f"ID: {item['id']} - {item['nome']}"):
-                    st.write(f"**Conservação Padrão:** {item.get('conservacao', 'Não definida')}")
-                    if st.button(f"REUTILIZAR DADOS ID {item['id']}", key=f"btn_{item['id']}"):
+                with st.expander(f"📌 {item['nome']} (ID: {item['id']})"):
+                    if st.button(f"USAR DADOS DESTE PRODUTO", key=f"hist_{item['id']}"):
                         st.session_state['id_temp'] = item['id']
                         st.session_state['nome_temp'] = item['nome']
                         st.session_state['cons_temp'] = item.get('conservacao', 'Refrigerado')
-                        st.success("Dados carregados! Vá para a aba 'Gerar/Editar'")
-        elif busca_termo:
-            st.warning("Nenhuma etiqueta encontrada com esse termo.")
+                        st.info("Dados carregados! Vá para a aba 'Gerar/Editar'")
 
     # --- SUB-ABA: GERAR/EDITAR ---
     with aba_gerar:
-        st.subheader("Configurar Impressão")
+        st.subheader("Configuração da Etiqueta")
         with st.form("form_etq_final", clear_on_submit=False):
             c_id1, c_id2 = st.columns([1, 3])
-            # Pega o ID da busca ou o que a IA leu
-            id_final = c_id1.text_input("ID (Nº)", value=st.session_state.get('id_temp', st.session_state.get('codigo_lido', "")))
-            e_nome = c_id2.text_input("Nome do Produto", value=st.session_state.get('nome_temp', ''))
+            id_final = c_id1.text_input("ID Nº", value=st.session_state.get('id_temp', st.session_state.get('codigo_lido', "")))
+            e_nome = c_id2.text_input("Nome", value=st.session_state.get('nome_temp', ''))
             
             c_etq1, c_etq2 = st.columns(2)
-            e_qtd = c_etq1.text_input("Quantidade/Lote")
-            e_cons = c_etq2.selectbox("Conservação", 
-                                      ["Refrigerado", "Congelado", "Temperatura Ambiente"],
+            e_qtd = c_etq1.text_input("Qtd/Lote")
+            e_cons = c_etq2.selectbox("Conservação", ["Refrigerado", "Congelado", "Ambiente"],
                                       index=0 if st.session_state.get('cons_temp') == 'Refrigerado' else (1 if st.session_state.get('cons_temp') == 'Congelado' else 2))
             
-            e_man = c_etq1.date_input("Data de Manipulação", value=datetime.now())
-            e_val = c_etq2.date_input("Nova Validade")
+            e_man = c_etq1.date_input("Manipulação", value=datetime.now())
+            e_val = c_etq2.date_input("Validade")
             
-            gerar = st.form_submit_button("GERAR E SALVAR")
+            gerar = st.form_submit_button("GERAR ETIQUETA")
 
         if gerar:
-            # Salva no Firebase para futuras pesquisas
-            dados_salvar = {"nome": e_nome, "conservacao": e_cons}
-            requests.patch(f"{URL_BASE}produtos/{id_final}.json", json=dados_salvar)
+            # Salva no histórico do Firebase
+            requests.patch(f"{URL_BASE}produtos/{id_final}.json", json={"nome": e_nome, "conservacao": e_cons})
             
             qr_url = f"https://quickchart.io/qr?text={id_final}&size=150"
             
+            # HTML com o botão de impressão que funciona
             etiqueta_html = f"""
                 <style>
                     @media print {{
-                        header, footer, .stAppHeader, [data-testid="stHeader"], .no-print {{ display: none !important; }}
+                        /* Oculta tudo do Streamlit na impressão */
+                        header, footer, .stAppHeader, [data-testid="stHeader"], .no-print, button {{ display: none !important; }}
                         div[data-testid="stVerticalBlock"] > div:not(#area-impressao-pai) {{ display: none !important; }}
-                        body {{ background: white !important; margin: 0; padding: 0; }}
+                        body {{ background: white !important; margin: 0; }}
                         #area-impressao {{ 
                             visibility: visible !important; 
                             position: absolute; left: 0; top: 0; width: 100%; border: none !important;
@@ -220,7 +230,7 @@ with tab_etiquetas:
                         <h2 style="margin:0; text-align: center; font-size: 18px;">ALVES GESTÃO</h2>
                         <hr style="border: 1px solid black;">
                         <p style="margin: 4px 0; font-size: 13px;"><b>PRODUTO:</b> {e_nome}</p>
-                        <p style="margin: 4px 0; font-size: 13px;"><b>ID/REF:</b> Nº {id_final}</p>
+                        <p style="margin: 4px 0; font-size: 13px;"><b>ID:</b> Nº {id_final}</p>
                         <p style="margin: 4px 0; font-size: 13px;"><b>MANIP.:</b> {e_man.strftime('%d/%m/%Y')}</p>
                         <p style="margin: 4px 0; font-size: 13px;"><b>VAL.:</b> {e_val.strftime('%d/%m/%Y')}</p>
                         <p style="margin: 4px 0; font-size: 13px;"><b>QTD:</b> {e_qtd} | <b>CONS.:</b> {e_cons}</p>
@@ -230,7 +240,7 @@ with tab_etiquetas:
                     </div>
                 </div>
                 <button class="no-print btn-imprimir" onclick="window.print()">
-                    🖨️ CONFIRMAR E IMPRIMIR
+                    🖨️ IMPRIMIR ETIQUETA
                 </button>
             """
             st.components.v1.html(etiqueta_html, height=550)
