@@ -13,12 +13,15 @@ URL_BASE = "https://restaurante-alves-default-rtdb.firebaseio.com/"
 # Inicialização de estados
 if "codigo_lido" not in st.session_state: st.session_state.codigo_lido = ""
 if "senha_nutri" not in st.session_state: st.session_state.senha_nutri = False
+if "id_temp" not in st.session_state: st.session_state.id_temp = ""
+if "nome_temp" not in st.session_state: st.session_state.nome_temp = ""
+if "cons_temp" not in st.session_state: st.session_state.cons_temp = "Refrigerado"
 
 st.title("ALVES GESTÃO INTEGRADA 🍱🤖")
 
-# --- FUNÇÃO DE LEITURA IA ---
-def ler_com_ia():
-    foto = st.camera_input("Scanner de IA (Foque nos números)")
+# --- FUNÇÃO DE LEITURA IA (COM CHAVE DINÂMICA PARA ESTABILIDADE) ---
+def ler_com_ia(chave_camera):
+    foto = st.camera_input("Scanner de IA (Foque nos números)", key=chave_camera)
     if foto:
         imagem_b64 = base64.b64encode(foto.read()).decode('utf-8')
         url_vision = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_API_KEY}"
@@ -43,7 +46,7 @@ tab_estoque, tab_alertas, tab_nutri, tab_cozinha, tab_etiquetas = st.tabs([
 # ==========================================
 with tab_estoque:
     operacao = st.radio("Selecione a Operação:", ["Reposição", "Baixa", "Cadastrar Novo"], horizontal=True)
-    ler_com_ia()
+    ler_com_ia(chave_camera="cam_estoque")
     
     with st.form("form_estoque", clear_on_submit=True):
         if operacao == "Cadastrar Novo":
@@ -80,7 +83,7 @@ with tab_estoque:
             st.session_state.codigo_lido = ""
 
 # ==========================================
-# ABA 2: ALERTAS 
+# ABA 2: ALERTAS (CORRIGIDO)
 # ==========================================
 with tab_alertas:
     sub1, sub2 = st.tabs(["📉 Estoque Mínimo", "📅 Perto da Validade"])
@@ -107,7 +110,7 @@ with tab_alertas:
                     continue
 
 # ==========================================
-# ABA 3: NUTRICIONISTA (CAMPO MAIOR)
+# ABA 3: NUTRICIONISTA 
 # ==========================================
 with tab_nutri:
     if not st.session_state.senha_nutri:
@@ -146,24 +149,10 @@ with tab_cozinha:
 with tab_etiquetas:
     aba_gerar, aba_historico = st.tabs(["🆕 Gerar/Editar", "🔍 Scanner e Pesquisa"])
 
-    # --- SUB-ABA: SCANNER E PESQUISA ---
     with aba_historico:
         st.subheader("Buscar Etiqueta Antiga")
-        
-        # Scanner de IA específico para a aba de etiquetas
-        foto_etq = st.camera_input("Aponte para o QR Code da etiqueta antiga", key="cam_etiqueta")
-        if foto_etq:
-            imagem_b64 = base64.b64encode(foto_etq.read()).decode('utf-8')
-            url_v = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_API_KEY}"
-            payload = {"requests": [{"image": {"content": imagem_b64}, "features": [{"type": "TEXT_DETECTION"}]}]}
-            try:
-                res_v = requests.post(url_v, json=payload).json()
-                numeros_lidos = "".join(filter(str.isdigit, res_v['responses'][0]['fullTextAnnotation']['text']))
-                if numeros_lidos:
-                    st.session_state.codigo_lido = numeros_lidos
-                    st.success(f"ID Detectado: {numeros_lidos}")
-            except:
-                st.error("Não foi possível ler o QR Code.")
+        # CHAVE ÚNICA PARA A CÂMERA DAS ETIQUETAS
+        ler_com_ia(chave_camera="cam_etiquetas")
 
         busca_termo = st.text_input("Ou pesquise por Nome/ID", value=st.session_state.get('codigo_lido', ""))
         
@@ -171,18 +160,18 @@ with tab_etiquetas:
             todos_produtos = requests.get(f"{URL_BASE}produtos.json").json() or {}
             encontrados = []
             for id_p, info in todos_produtos.items():
-                if str(busca_termo).lower() in str(id_p).lower() or str(busca_termo).lower() in str(info.get('nome', '')).lower():
-                    encontrados.append({"id": id_p, **info})
+                if info and isinstance(info, dict):
+                    if str(busca_termo).lower() in str(id_p).lower() or str(busca_termo).lower() in str(info.get('nome', '')).lower():
+                        encontrados.append({"id": id_p, **info})
             
             for item in encontrados:
-                with st.expander(f"📌 {item['nome']} (ID: {item['id']})"):
+                with st.expander(f"📌 {item.get('nome', 'Sem Nome')} (ID: {item['id']})"):
                     if st.button(f"USAR DADOS DESTE PRODUTO", key=f"hist_{item['id']}"):
                         st.session_state['id_temp'] = item['id']
-                        st.session_state['nome_temp'] = item['nome']
+                        st.session_state['nome_temp'] = item.get('nome', '')
                         st.session_state['cons_temp'] = item.get('conservacao', 'Refrigerado')
                         st.info("Dados carregados! Vá para a aba 'Gerar/Editar'")
 
-    # --- SUB-ABA: GERAR/EDITAR ---
     with aba_gerar:
         st.subheader("Configuração da Etiqueta")
         with st.form("form_etq_final", clear_on_submit=False):
@@ -206,11 +195,9 @@ with tab_etiquetas:
             
             qr_url = f"https://quickchart.io/qr?text={id_final}&size=150"
             
-            # HTML com o botão de impressão que funciona
             etiqueta_html = f"""
                 <style>
                     @media print {{
-                        /* Oculta tudo do Streamlit na impressão */
                         header, footer, .stAppHeader, [data-testid="stHeader"], .no-print, button {{ display: none !important; }}
                         div[data-testid="stVerticalBlock"] > div:not(#area-impressao-pai) {{ display: none !important; }}
                         body {{ background: white !important; margin: 0; }}
@@ -244,3 +231,4 @@ with tab_etiquetas:
                 </button>
             """
             st.components.v1.html(etiqueta_html, height=550)
+
