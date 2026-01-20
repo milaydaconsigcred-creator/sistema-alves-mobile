@@ -141,73 +141,96 @@ with tab_cozinha:
     else: st.write("Aguardando cardápio da nutricionista.")
 
 # ==========================================
-# ABA 5: ETIQUETAS (PARA PRODUTOS MANIPULADOS)
+# ABA 5: ETIQUETAS (GERADOR + PESQUISA/HISTÓRICO)
 # ==========================================
 with tab_etiquetas:
-    with st.form("form_etq", clear_on_submit=True):
-        st.info("Produtos Manipulados: Use IDs sequenciais (1, 2, 3...) para rastreio.")
-        
-        e_nome = st.text_input("Nome do Produto")
-        
-        c_etq1, c_etq2 = st.columns(2)
-        # Permite colocar o número sequencial (ex: 1, 2, 3...)
-        e_cod_ref = c_etq1.text_input("ID do Manipulado (Nº)", value=st.session_state.codigo_lido)
-        e_qtd = c_etq2.text_input("Quantidade/Lote")
-        
-        e_man = c_etq1.date_input("Data de Manipulação", value=datetime.now())
-        e_val = c_etq2.date_input("Nova Validade")
-        
-        e_cons = st.selectbox("Forma de Conservação", ["Refrigerado", "Congelado", "Temperatura Ambiente"])
-        
-        gerar = st.form_submit_button("GERAR ETIQUETA")
+    aba_gerar, aba_historico = st.tabs(["🆕 Gerar/Editar", "🔍 Pesquisar Etiquetas Salvas"])
 
-    if gerar:
-        # QR Code baseado no número ID (1, 2, 3...)
-        qr_url = f"https://quickchart.io/qr?text={e_cod_ref}&size=150"
+    # --- SUB-ABA: PESQUISA ---
+    with aba_historico:
+        st.subheader("Consultar Histórico de Manipulados")
+        busca_termo = st.text_input("Pesquisar por Nome ou ID (QR Code)", value=st.session_state.get('codigo_lido', ""))
         
-        etiqueta_html = f"""
-            <style>
-                @media print {{
-                    header, footer, .stAppHeader, [data-testid="stHeader"], .no-print {{ display: none !important; }}
-                    div[data-testid="stVerticalBlock"] > div:not(#area-impressao-pai) {{ display: none !important; }}
-                    body {{ background: white !important; margin: 0; }}
-                    #area-impressao {{ 
-                        visibility: visible !important; 
-                        position: absolute; 
-                        left: 0; top: 0; 
-                        width: 100%; border: none !important;
-                    }}
-                }}
-                .btn-imprimir {{
-                    padding: 15px; background-color: #28a745; color: white;
-                    border: none; border-radius: 8px; cursor: pointer;
-                    width: 100%; font-weight: bold; margin-top: 20px;
-                }}
-            </style>
+        todos_produtos = requests.get(f"{URL_BASE}produtos.json").json() or {}
+        
+        encontrados = []
+        for id_prod, info in todos_produtos.items():
+            # Filtra se o termo de busca está no ID ou no Nome
+            if str(busca_termo).lower() in str(id_prod).lower() or str(busca_termo).lower() in str(info.get('nome', '')).lower():
+                encontrados.append({"id": id_prod, **info})
+        
+        if encontrados and busca_termo:
+            for item in encontrados:
+                with st.expander(f"ID: {item['id']} - {item['nome']}"):
+                    st.write(f"**Conservação Padrão:** {item.get('conservacao', 'Não definida')}")
+                    if st.button(f"REUTILIZAR DADOS ID {item['id']}", key=f"btn_{item['id']}"):
+                        st.session_state['id_temp'] = item['id']
+                        st.session_state['nome_temp'] = item['nome']
+                        st.session_state['cons_temp'] = item.get('conservacao', 'Refrigerado')
+                        st.success("Dados carregados! Vá para a aba 'Gerar/Editar'")
+        elif busca_termo:
+            st.warning("Nenhuma etiqueta encontrada com esse termo.")
+
+    # --- SUB-ABA: GERAR/EDITAR ---
+    with aba_gerar:
+        st.subheader("Configurar Impressão")
+        with st.form("form_etq_final", clear_on_submit=False):
+            c_id1, c_id2 = st.columns([1, 3])
+            # Pega o ID da busca ou o que a IA leu
+            id_final = c_id1.text_input("ID (Nº)", value=st.session_state.get('id_temp', st.session_state.get('codigo_lido', "")))
+            e_nome = c_id2.text_input("Nome do Produto", value=st.session_state.get('nome_temp', ''))
             
-            <div id="area-impressao-pai">
-                <div id="area-impressao" style="border: 2px solid #000; padding: 15px; width: 280px; background: white; color: black; font-family: Arial; margin: auto;">
-                    <h2 style="margin:0; text-align: center; font-size: 18px;">ALVES GESTÃO</h2>
-                    <p style="margin:0; text-align: center; font-size: 10px;">PRODUTO MANIPULADO</p>
-                    <hr style="border: 1px solid black;">
-                    
-                    <p style="margin: 4px 0; font-size: 13px;"><b>PRODUTO:</b> {e_nome}</p>
-                    <p style="margin: 4px 0; font-size: 13px;"><b>ID/REF:</b> Nº {e_cod_ref}</p>
-                    <p style="margin: 4px 0; font-size: 13px;"><b>MANIP.:</b> {e_man.strftime('%d/%m/%Y')}</p>
-                    <p style="margin: 4px 0; font-size: 13px;"><b>VAL.:</b> {e_val.strftime('%d/%m/%Y')}</p>
-                    <p style="margin: 4px 0; font-size: 13px;"><b>QTD:</b> {e_qtd}</p>
-                    <p style="margin: 4px 0; font-size: 13px;"><b>CONS.:</b> {e_cons}</p>
-                    
-                    <div style="text-align: center; margin-top: 8px;">
-                        <img src="{qr_url}" style="width: 110px; height: 110px;">
-                        <p style="font-size: 9px; margin:0;">Rastreio via App</p>
+            c_etq1, c_etq2 = st.columns(2)
+            e_qtd = c_etq1.text_input("Quantidade/Lote")
+            e_cons = c_etq2.selectbox("Conservação", 
+                                      ["Refrigerado", "Congelado", "Temperatura Ambiente"],
+                                      index=0 if st.session_state.get('cons_temp') == 'Refrigerado' else (1 if st.session_state.get('cons_temp') == 'Congelado' else 2))
+            
+            e_man = c_etq1.date_input("Data de Manipulação", value=datetime.now())
+            e_val = c_etq2.date_input("Nova Validade")
+            
+            gerar = st.form_submit_button("GERAR E SALVAR")
+
+        if gerar:
+            # Salva no Firebase para futuras pesquisas
+            dados_salvar = {"nome": e_nome, "conservacao": e_cons}
+            requests.patch(f"{URL_BASE}produtos/{id_final}.json", json=dados_salvar)
+            
+            qr_url = f"https://quickchart.io/qr?text={id_final}&size=150"
+            
+            etiqueta_html = f"""
+                <style>
+                    @media print {{
+                        header, footer, .stAppHeader, [data-testid="stHeader"], .no-print {{ display: none !important; }}
+                        div[data-testid="stVerticalBlock"] > div:not(#area-impressao-pai) {{ display: none !important; }}
+                        body {{ background: white !important; margin: 0; padding: 0; }}
+                        #area-impressao {{ 
+                            visibility: visible !important; 
+                            position: absolute; left: 0; top: 0; width: 100%; border: none !important;
+                        }}
+                    }}
+                    .btn-imprimir {{
+                        padding: 15px; background-color: #28a745; color: white;
+                        border: none; border-radius: 8px; cursor: pointer;
+                        width: 100%; font-weight: bold; margin-top: 20px;
+                    }}
+                </style>
+                <div id="area-impressao-pai">
+                    <div id="area-impressao" style="border: 2px solid #000; padding: 15px; width: 280px; background: white; color: black; font-family: Arial; margin: auto;">
+                        <h2 style="margin:0; text-align: center; font-size: 18px;">ALVES GESTÃO</h2>
+                        <hr style="border: 1px solid black;">
+                        <p style="margin: 4px 0; font-size: 13px;"><b>PRODUTO:</b> {e_nome}</p>
+                        <p style="margin: 4px 0; font-size: 13px;"><b>ID/REF:</b> Nº {id_final}</p>
+                        <p style="margin: 4px 0; font-size: 13px;"><b>MANIP.:</b> {e_man.strftime('%d/%m/%Y')}</p>
+                        <p style="margin: 4px 0; font-size: 13px;"><b>VAL.:</b> {e_val.strftime('%d/%m/%Y')}</p>
+                        <p style="margin: 4px 0; font-size: 13px;"><b>QTD:</b> {e_qtd} | <b>CONS.:</b> {e_cons}</p>
+                        <div style="text-align: center; margin-top: 8px;">
+                            <img src="{qr_url}" style="width: 110px; height: 110px;">
+                        </div>
                     </div>
                 </div>
-            </div>
-            
-            <button class="no-print btn-imprimir" onclick="window.print()">
-                🖨️ IMPRIMIR ETIQUETA Nº {e_cod_ref}
-            </button>
-        """
-        st.components.v1.html(etiqueta_html, height=600)
-
+                <button class="no-print btn-imprimir" onclick="window.print()">
+                    🖨️ CONFIRMAR E IMPRIMIR
+                </button>
+            """
+            st.components.v1.html(etiqueta_html, height=550)
