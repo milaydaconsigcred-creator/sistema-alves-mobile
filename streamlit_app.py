@@ -19,7 +19,7 @@ if "cons_temp" not in st.session_state: st.session_state.cons_temp = "Refrigerad
 
 st.title("ALVES GESTÃO INTEGRADA 🍱🤖")
 
-# --- FUNÇÃO DE LEITURA IA (COM CHAVE DINÂMICA PARA ESTABILIDADE) ---
+# --- FUNÇÃO DE LEITURA IA ---
 def ler_com_ia(chave_camera):
     foto = st.camera_input("Scanner de IA (Foque nos números)", key=chave_camera)
     if foto:
@@ -42,7 +42,7 @@ tab_estoque, tab_alertas, tab_nutri, tab_cozinha, tab_etiquetas = st.tabs([
 ])
 
 # ==========================================
-# ABA 1: ESTOQUE 
+# ABA 1: ESTOQUE (COM LIMPEZA DE CAMPOS)
 # ==========================================
 with tab_estoque:
     operacao = st.radio("Selecione a Operação:", ["Reposição", "Baixa", "Cadastrar Novo"], horizontal=True)
@@ -69,58 +69,51 @@ with tab_estoque:
 
         if st.form_submit_button("CONFIRMAR AÇÃO"):
             path = f"produtos/{cod}"
+            sucesso = False
             if operacao == "Cadastrar Novo":
                 dados = {"nome": nome, "validade": str(val), "valor": valor, "unidade": unidade, "estoque": qtd_ini, "minimo": min_alerta}
                 requests.patch(f"{URL_BASE}{path}.json", json=dados)
                 st.success("Produto Cadastrado!")
+                sucesso = True
             else:
                 res = requests.get(f"{URL_BASE}{path}.json").json()
                 if res:
                     novo_total = (res.get('estoque', 0) + qtd_operacao) if operacao == "Reposição" else (res.get('estoque', 0) - qtd_operacao)
                     requests.patch(f"{URL_BASE}{path}.json", json={"estoque": max(0, novo_total)})
                     st.success(f"Estoque atualizado: {max(0, novo_total)} {res.get('unidade', '')}")
+                    sucesso = True
                 else: st.error("Produto não existe no cadastro!")
-            st.session_state.codigo_lido = ""
+            
+            if sucesso:
+                st.session_state.codigo_lido = ""
+                st.rerun() # Força o formulário a zerar visualmente
 
 # ==========================================
-# ABA 2: ALERTAS (CORRIGIDO)
+# ABAS 2, 3 e 4 permanecem iguais
 # ==========================================
 with tab_alertas:
     sub1, sub2 = st.tabs(["📉 Estoque Mínimo", "📅 Perto da Validade"])
     produtos = requests.get(f"{URL_BASE}produtos.json").json() or {}
-    
     with sub1:
         for k, v in produtos.items():
             if v and isinstance(v, dict):
-                estoque = v.get('estoque', 0)
-                minimo = v.get('minimo', 0)
-                nome_item = v.get('nome', 'Sem Nome')
-                if estoque <= minimo:
-                    st.error(f"**{nome_item}** - Estoque Crítico: {estoque}")
-                
+                estoque, minimo = v.get('estoque', 0), v.get('minimo', 0)
+                if estoque <= minimo: st.error(f"**{v.get('nome', 'Sem Nome')}** - Estoque Crítico: {estoque}")
     with sub2:
         hoje = datetime.now()
         for k, v in produtos.items():
             if v and isinstance(v, dict) and 'validade' in v:
                 try:
                     data_v = datetime.strptime(v['validade'], '%Y-%m-%d')
-                    if (data_v - hoje).days <= 7:
-                        st.warning(f"**{v.get('nome', 'Sem Nome')}** vence em {(data_v - hoje).days} dias! ({v['validade']})")
-                except:
-                    continue
+                    if (data_v - hoje).days <= 7: st.warning(f"**{v.get('nome', 'Sem Nome')}** vence em {(data_v - hoje).days} dias!")
+                except: continue
 
-# ==========================================
-# ABA 3: NUTRICIONISTA 
-# ==========================================
 with tab_nutri:
     if not st.session_state.senha_nutri:
         senha = st.text_input("Senha da Nutricionista", type="password")
         if st.button("Acessar"):
-            if senha == "alvesnutri":
-                st.session_state.senha_nutri = True
-                st.rerun()
+            if senha == "alvesnutri": st.session_state.senha_nutri = True; st.rerun()
     else:
-        st.subheader("Planejamento Diário")
         with st.form("form_nutri", clear_on_submit=True):
             prato = st.text_area("Prato e Descrição do Cardápio", height=150)
             itens_cozinha = st.text_area("Ingredientes e Quantidades para Retirada", height=150)
@@ -129,106 +122,78 @@ with tab_nutri:
                 st.success("Cardápio enviado!")
         if st.button("Sair"): st.session_state.senha_nutri = False; st.rerun()
 
-# ==========================================
-# ABA 4: COZINHA
-# ==========================================
 with tab_cozinha:
-    st.subheader("Cardápio Atualizado")
     dados_c = requests.get(f"{URL_BASE}cardapio_dia.json").json()
     if dados_c and dados_c.get("data") == str(datetime.now().date()):
-        st.info(f"### Cardápio de Hoje:")
-        st.write(dados_c['prato'])
-        st.divider()
-        st.write("**Lista de Retirada no Estoque:**")
+        st.info(f"### Cardápio de Hoje: {dados_c['prato']}")
         st.code(dados_c['lista'])
-    else: st.write("Aguardando cardápio da nutricionista.")
+    else: st.write("Aguardando cardápio.")
 
 # ==========================================
-# ABA 5: ETIQUETAS (SCANNER + HISTÓRICO + IMPRESSÃO)
+# ABA 5: ETIQUETAS (COM LIMPEZA PÓS-IMPRESSÃO)
 # ==========================================
 with tab_etiquetas:
     aba_gerar, aba_historico = st.tabs(["🆕 Gerar/Editar", "🔍 Scanner e Pesquisa"])
 
     with aba_historico:
-        st.subheader("Buscar Etiqueta Antiga")
-        # CHAVE ÚNICA PARA A CÂMERA DAS ETIQUETAS
         ler_com_ia(chave_camera="cam_etiquetas")
-
         busca_termo = st.text_input("Ou pesquise por Nome/ID", value=st.session_state.get('codigo_lido', ""))
-        
         if busca_termo:
-            todos_produtos = requests.get(f"{URL_BASE}produtos.json").json() or {}
-            encontrados = []
-            for id_p, info in todos_produtos.items():
+            todos = requests.get(f"{URL_BASE}produtos.json").json() or {}
+            for id_p, info in todos.items():
                 if info and isinstance(info, dict):
                     if str(busca_termo).lower() in str(id_p).lower() or str(busca_termo).lower() in str(info.get('nome', '')).lower():
-                        encontrados.append({"id": id_p, **info})
-            
-            for item in encontrados:
-                with st.expander(f"📌 {item.get('nome', 'Sem Nome')} (ID: {item['id']})"):
-                    if st.button(f"USAR DADOS DESTE PRODUTO", key=f"hist_{item['id']}"):
-                        st.session_state['id_temp'] = item['id']
-                        st.session_state['nome_temp'] = item.get('nome', '')
-                        st.session_state['cons_temp'] = item.get('conservacao', 'Refrigerado')
-                        st.info("Dados carregados! Vá para a aba 'Gerar/Editar'")
+                        with st.expander(f"📌 {info.get('nome')} (ID: {id_p})"):
+                            if st.button(f"USAR DADOS", key=f"hist_{id_p}"):
+                                st.session_state['id_temp'] = id_p
+                                st.session_state['nome_temp'] = info.get('nome', '')
+                                st.session_state['cons_temp'] = info.get('conservacao', 'Refrigerado')
+                                st.rerun()
 
     with aba_gerar:
-        st.subheader("Configuração da Etiqueta")
-        with st.form("form_etq_final", clear_on_submit=False):
+        with st.form("form_etq_final", clear_on_submit=True):
             c_id1, c_id2 = st.columns([1, 3])
             id_final = c_id1.text_input("ID Nº", value=st.session_state.get('id_temp', st.session_state.get('codigo_lido', "")))
             e_nome = c_id2.text_input("Nome", value=st.session_state.get('nome_temp', ''))
-            
             c_etq1, c_etq2 = st.columns(2)
             e_qtd = c_etq1.text_input("Qtd/Lote")
             e_cons = c_etq2.selectbox("Conservação", ["Refrigerado", "Congelado", "Ambiente"],
                                       index=0 if st.session_state.get('cons_temp') == 'Refrigerado' else (1 if st.session_state.get('cons_temp') == 'Congelado' else 2))
-            
             e_man = c_etq1.date_input("Manipulação", value=datetime.now())
             e_val = c_etq2.date_input("Validade")
-            
-            gerar = st.form_submit_button("GERAR ETIQUETA")
+            gerar = st.form_submit_button("GERAR E IMPRIMIR ETIQUETA")
 
         if gerar:
-            # Salva no histórico do Firebase
             requests.patch(f"{URL_BASE}produtos/{id_final}.json", json={"nome": e_nome, "conservacao": e_cons})
-            
             qr_url = f"https://quickchart.io/qr?text={id_final}&size=150"
-            
             etiqueta_html = f"""
                 <style>
                     @media print {{
                         header, footer, .stAppHeader, [data-testid="stHeader"], .no-print, button {{ display: none !important; }}
                         div[data-testid="stVerticalBlock"] > div:not(#area-impressao-pai) {{ display: none !important; }}
                         body {{ background: white !important; margin: 0; }}
-                        #area-impressao {{ 
-                            visibility: visible !important; 
-                            position: absolute; left: 0; top: 0; width: 100%; border: none !important;
-                        }}
+                        #area-impressao {{ visibility: visible !important; position: absolute; left: 0; top: 0; width: 100%; border: none !important; }}
                     }}
-                    .btn-imprimir {{
-                        padding: 15px; background-color: #28a745; color: white;
-                        border: none; border-radius: 8px; cursor: pointer;
-                        width: 100%; font-weight: bold; margin-top: 20px;
-                    }}
+                    .btn-imprimir {{ padding: 15px; background-color: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold; margin-top: 20px; }}
                 </style>
                 <div id="area-impressao-pai">
                     <div id="area-impressao" style="border: 2px solid #000; padding: 15px; width: 280px; background: white; color: black; font-family: Arial; margin: auto;">
-                        <h2 style="margin:0; text-align: center; font-size: 18px;">ALVES GESTÃO</h2>
-                        <hr style="border: 1px solid black;">
-                        <p style="margin: 4px 0; font-size: 13px;"><b>PRODUTO:</b> {e_nome}</p>
-                        <p style="margin: 4px 0; font-size: 13px;"><b>ID:</b> Nº {id_final}</p>
-                        <p style="margin: 4px 0; font-size: 13px;"><b>MANIP.:</b> {e_man.strftime('%d/%m/%Y')}</p>
-                        <p style="margin: 4px 0; font-size: 13px;"><b>VAL.:</b> {e_val.strftime('%d/%m/%Y')}</p>
-                        <p style="margin: 4px 0; font-size: 13px;"><b>QTD:</b> {e_qtd} | <b>CONS.:</b> {e_cons}</p>
-                        <div style="text-align: center; margin-top: 8px;">
-                            <img src="{qr_url}" style="width: 110px; height: 110px;">
-                        </div>
+                        <h2 style="margin:0; text-align: center;">ALVES GESTÃO</h2>
+                        <hr>
+                        <p><b>PRODUTO:</b> {e_nome}</p>
+                        <p><b>ID:</b> Nº {id_final} | <b>MANIP.:</b> {e_man.strftime('%d/%m/%Y')}</p>
+                        <p><b>VAL.:</b> {e_val.strftime('%d/%m/%Y')}</p>
+                        <p><b>QTD:</b> {e_qtd} | <b>CONS.:</b> {e_cons}</p>
+                        <div style="text-align: center;"><img src="{qr_url}" style="width: 110px;"></div>
                     </div>
                 </div>
-                <button class="no-print btn-imprimir" onclick="window.print()">
-                    🖨️ IMPRIMIR ETIQUETA
-                </button>
+                <button class="no-print btn-imprimir" onclick="window.print();">🖨️ IMPRIMIR ETIQUETA</button>
             """
-            st.components.v1.html(etiqueta_html, height=550)
+            st.components.v1.html(etiqueta_html, height=500)
+            
+            # Limpa os campos após gerar
+            st.session_state.codigo_lido = ""
+            st.session_state.id_temp = ""
+            st.session_state.nome_temp = ""
+            st.session_state.cons_temp = "Refrigerado"
 
