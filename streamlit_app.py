@@ -141,7 +141,7 @@ with tab_cozinha:
     else: st.write("Aguardando cardápio da nutricionista.")
 
 # ==========================================
-# ABA 5: ETIQUETAS (COM BOTÃO IMPRIMIR)
+# ABA 5: ETIQUETAS (COM BOTÃO IMPRIMIR CORRIGIDO)
 # ==========================================
 with tab_etiquetas:
     with st.form("form_etq", clear_on_submit=True):
@@ -157,9 +157,9 @@ with tab_etiquetas:
         qr_data = f"Produto: {e_nome} | Val: {e_val}"
         qr_url = f"https://chart.googleapis.com/chart?chs=150x150&cht=qr&chl={qr_data}"
         
-        # HTML da etiqueta
+        # HTML da etiqueta com script de impressão forçada
         etiqueta_html = f"""
-            <div id="print-area" style="border: 2px dashed #000; padding: 15px; width: 350px; background: white; color: black; font-family: Arial;">
+            <div id="etiqueta-para-imprimir" style="border: 2px dashed #000; padding: 15px; width: 350px; background: white; color: black; font-family: Arial;">
                 <h2 style="margin:0">ALVES GESTÃO</h2>
                 <hr>
                 <p><b>PRODUTO:</b> {e_nome}</p>
@@ -168,9 +168,18 @@ with tab_etiquetas:
                 <img src="{qr_url}" style="display:block; margin:auto;">
             </div>
             <br>
-            <button onclick="window.print()" style="padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer;">
-                🖨️ IMPRIMIR ETIQUETA
-            </button>
+            <a href="javascript:window.print()" style="text-decoration: none;">
+                <button style="padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; width: 100%;">
+                    🖨️ CLIQUE AQUI PARA IMPRIMIR
+                </button>
+            </a>
+            <script>
+                // Fallback para mobile
+                document.querySelector('button').onclick = function() {{
+                    window.parent.print();
+                }};
+            </script>
         """
-        st.markdown(etiqueta_html, unsafe_allow_html=True)
+        st.components.v1.html(etiqueta_html, height=500)
+
 
