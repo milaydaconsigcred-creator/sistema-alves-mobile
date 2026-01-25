@@ -19,30 +19,33 @@ if "cons_temp" not in st.session_state: st.session_state.cons_temp = "Refrigerad
 
 st.title("ALVES GESTÃO INTEGRADA 🍱🤖")
 
-# --- FUNÇÃO DE LEITURA IA ---
 def ler_com_ia(chave_camera):
-    foto = st.camera_input("Scanner de IA", key=chave_camera)
+    # Adicionamos um rótulo claro e garantimos que o container seja renderizado
+    foto = st.camera_input("APONTE PARA O CÓDIGO DE BARRAS", key=chave_camera)
+    
     if foto:
-        imagem_b64 = base64.b64encode(foto.read()).decode('utf-8')
-        url_vision = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_API_KEY}"
-        payload = {
-            "requests": [{
-                "image": {"content": imagem_b64},
-                "features": [{"type": "TEXT_DETECTION"}],
-                "imageContext": {"languageHints": ["en"]}
-            }]
-        }
         try:
-            res = requests.post(url_vision, json=payload).json()
-            texto_bruto = res['responses'][0]['fullTextAnnotation']['text']
-            numeros = "".join(filter(str.isdigit, texto_bruto))
-            if numeros:
-                st.session_state.codigo_lido = numeros
-                st.success(f"✅ Detectado: {numeros}")
-            else:
-                st.warning("Nenhum número detectado.")
-        except:
-            st.error("Erro na leitura.")
+            with st.spinner('IA analisando imagem...'):
+                imagem_b64 = base64.b64encode(foto.read()).decode('utf-8')
+                url_vision = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_API_KEY}"
+                payload = {
+                    "requests": [{
+                        "image": {"content": imagem_b64},
+                        "features": [{"type": "TEXT_DETECTION"}],
+                        "imageContext": {"languageHints": ["en"]}
+                    }]
+                }
+                res = requests.post(url_vision, json=payload).json()
+                texto_bruto = res['responses'][0]['fullTextAnnotation']['text']
+                numeros = "".join(filter(str.isdigit, texto_bruto))
+                if numeros:
+                    st.session_state.codigo_lido = numeros
+                    st.success(f"✅ Detectado: {numeros}")
+                    st.button("Limpar Leitura", on_click=lambda: st.session_state.update({"codigo_lido": ""}))
+                else:
+                    st.warning("Nenhum número detectado. Tente focar melhor.")
+        except Exception as e:
+            st.error("Erro ao processar imagem. Verifique sua conexão.")
 
 # --- ABAS ---
 tab_estoque, tab_alertas, tab_nutri, tab_cozinha, tab_etiquetas = st.tabs([
@@ -224,6 +227,7 @@ with tab_etiquetas:
                 <button style="width:100%; padding:10px; margin-top:10px;" onclick="window.print();">🖨️ Imprimir</button>
             """
             st.components.v1.html(etiqueta_html, height=450)
+
 
 
 
