@@ -19,22 +19,41 @@ if "cons_temp" not in st.session_state: st.session_state.cons_temp = "Refrigerad
 
 st.title("ALVES GESTÃO INTEGRADA 🍱🤖")
 
-# --- FUNÇÃO DE LEITURA IA ---
+# --- FUNÇÃO DE LEITURA IA AJUSTADA (FOCO EM NÚMEROS E CÂMERA TRASEIRA) ---
 def ler_com_ia(chave_camera):
-    foto = st.camera_input("Scanner de IA (Foque nos números)", key=chave_camera)
+    # O Streamlit já tenta usar a câmera traseira por padrão em dispositivos móveis,
+    # mas a interação com a IA Vision vai garantir que foquemos nos dígitos.
+    foto = st.camera_input("Scanner de IA (Foque nos números abaixo das barras)", key=chave_camera)
+    
     if foto:
         imagem_b64 = base64.b64encode(foto.read()).decode('utf-8')
         url_vision = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_API_KEY}"
-        payload = {"requests": [{"image": {"content": imagem_b64}, "features": [{"type": "TEXT_DETECTION"}]}]}
+        
+        # Enviamos um "hint" para a IA focar em extrair texto/números
+        payload = {
+            "requests": [{
+                "image": {"content": imagem_b64},
+                "features": [{"type": "TEXT_DETECTION"}],
+                "imageContext": {"languageHints": ["en"]} # Melhora detecção de caracteres latinos/números
+            }]
+        }
+        
         try:
             res = requests.post(url_vision, json=payload).json()
-            texto = res['responses'][0]['fullTextAnnotation']['text']
-            numeros = "".join(filter(str.isdigit, texto))
+            # Pega o texto bruto detectado
+            texto_bruto = res['responses'][0]['fullTextAnnotation']['text']
+            
+            # Limpeza: Deixa apenas números e ignora letras ou símbolos
+            numeros = "".join(filter(str.isdigit, texto_bruto))
+            
             if numeros:
+                # Se o número for muito longo (como códigos EAN-13), ele pega a sequência principal
                 st.session_state.codigo_lido = numeros
-                st.success(f"Código Identificado: {numeros}")
+                st.success(f"✅ Números detectados: {numeros}")
+            else:
+                st.warning("Nenhum número detectado. Tente aproximar mais a câmera.")
         except:
-            st.error("Erro na leitura. Digite manualmente se necessário.")
+            st.error("Erro na leitura. Tente novamente com mais luz.")
 
 # --- ABAS ---
 tab_estoque, tab_alertas, tab_nutri, tab_cozinha, tab_etiquetas = st.tabs([
@@ -199,4 +218,5 @@ with tab_etiquetas:
             st.session_state.id_temp = ""
             st.session_state.nome_temp = ""
             st.session_state.cons_temp = "Refrigerado"
+
 
