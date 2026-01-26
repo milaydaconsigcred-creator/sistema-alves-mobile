@@ -117,7 +117,7 @@ with tab_estoque:
                 st.rerun()
 
 # ==========================================
-# ABA 2: ALERTAS (AJUSTADO PARA /estoque/LOJA)
+# ABA 2: ALERTAS (CORRIGIDO PARA BUSCA DUPLA)
 # ==========================================
 with tab_alertas:
     loja_alerta = st.selectbox("Ver alertas de:", ["BRASÍLIA", "ESTRUTURAL", "CAFETERIA"], key="alert_loja")
@@ -125,31 +125,42 @@ with tab_alertas:
     
     sub1, sub2 = st.tabs(["📉 Estoque Mínimo", "📅 Perto da Validade"])
     
-    # Busca da nova pasta de estoque
-    produtos = requests.get(f"{URL_BASE}estoque/{prefixo_alerta}.json").json()
+    # --- BUSCA OS DADOS ---
+    # 1. Busca na pasta nova (/estoque/LOJA)
+    produtos_novos = requests.get(f"{URL_BASE}estoque/{prefixo_alerta}.json").json() or {}
     
-    # Fallback para Brasília caso a pasta nova ainda esteja vazia
-    if not produtos and prefixo_alerta == "BRASÍLIA":
-        produtos = requests.get(f"{URL_BASE}produtos.json").json() or {}
+    # 2. Se for Brasília, busca também na pasta antiga (/produtos) para não sumir nada
+    produtos_antigos = {}
+    if prefixo_alerta == "BRASÍLIA":
+        produtos_antigos = requests.get(f"{URL_BASE}produtos.json").json() or {}
     
-    if not produtos: produtos = {}
-
+    # Junta os dois (o novo sobrescreve o antigo se o código for igual)
+    todos_produtos = {**produtos_antigos, **produtos_novos}
+    
     with sub1:
-        for k, v in produtos.items():
+        houve_alerta_estoque = False
+        for k, v in todos_produtos.items():
             if v and isinstance(v, dict):
-                estoque = float(v.get('estoque', 0))
-                minimo = float(v.get('minimo', 0))
-                if estoque <= minimo:
-                    st.error(f"**{v.get('nome', 'Item')}** - Estoque: {estoque} (Mín: {minimo})")
+                # Tenta pegar 'estoque' e 'minimo', garantindo que sejam números
+                try:
+                    estoque = float(v.get('estoque', 0))
+                    minimo = float(v.get('minimo', 0))
+                    if estoque <= minimo:
+                        st.error(f"**{v.get('nome', 'Item s/ Nome')}**\n\n📦 Estoque: {estoque} | 🚨 Mínimo: {minimo}")
+                        houve_alerta_estoque = True
+                except: continue
+        if not houve_alerta_estoque:
+            st.success(f"✅ Tudo em dia com o estoque de {loja_alerta}!")
 
     with sub2:
         hoje = datetime.now()
-        for k, v in produtos.items():
+        houve_alerta_validade = False
+        for k, v in todos_produtos.items():
             if v and isinstance(v, dict):
+                # Tenta buscar por 'vencimento' (novo) ou 'validade' (antigo)
                 data_v_str = v.get('vencimento') or v.get('validade')
                 if data_v_str and data_v_str != "-":
                     try:
-                        # Tenta converter os formatos comuns de data
                         for fmt in ('%d/%m/%Y', '%Y-%m-%d'):
                             try:
                                 data_v = datetime.strptime(data_v_str, fmt)
@@ -158,8 +169,11 @@ with tab_alertas:
                         
                         dias_restantes = (data_v - hoje).days
                         if dias_restantes <= 7:
-                            st.warning(f"**{v.get('nome')}** vence em {dias_restantes} dias! ({data_v_str})")
+                            st.warning(f"**{v.get('nome')}**\n\n📅 Vence em {dias_restantes} dias ({data_v.strftime('%d/%m/%Y')})")
+                            houve_alerta_validade = True
                     except: continue
+        if not houve_alerta_validade:
+            st.success(f"✅ Nenhuma validade próxima em {loja_alerta}!")
 
 # --- DEMAIS ABAS (MANTIDAS) ---
 with tab_nutri:
@@ -224,6 +238,7 @@ with tab_etiquetas:
                 <button style="width:100%; padding:10px; margin-top:10px;" onclick="window.print();">🖨️ Imprimir</button>
             """
             st.components.v1.html(etiqueta_html, height=450)
+
 
 
 
