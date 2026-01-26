@@ -19,37 +19,31 @@ if "cons_temp" not in st.session_state: st.session_state.cons_temp = "Refrigerad
 
 st.title("ALVES GESTÃO INTEGRADA 🍱🤖")
 
+# --- FUNÇÃO DE LEITURA IA ---
 def ler_com_ia(chave_camera):
-    # O componente camera_input do Streamlit precisa de permissão explícita do navegador/WebView
-    foto = st.camera_input("Scanner de IA (Aponte para o código)", key=chave_camera)
-    
+    foto = st.camera_input("Scanner de IA", key=chave_camera)
     if foto:
+        imagem_b64 = base64.b64encode(foto.read()).decode('utf-8')
+        url_vision = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_API_KEY}"
+        payload = {
+            "requests": [{
+                "image": {"content": imagem_b64},
+                "features": [{"type": "TEXT_DETECTION"}],
+                "imageContext": {"languageHints": ["en"]}
+            }]
+        }
         try:
-            # Mostra um carregamento enquanto a IA processa
-            with st.spinner('A processar imagem...'):
-                imagem_b64 = base64.b64encode(foto.read()).decode('utf-8')
-                url_vision = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_API_KEY}"
-                payload = {
-                    "requests": [{
-                        "image": {"content": imagem_b64},
-                        "features": [{"type": "TEXT_DETECTION"}],
-                        "imageContext": {"languageHints": ["en"]}
-                    }]
-                }
-                res = requests.post(url_vision, json=payload).json()
-                texto_bruto = res['responses'][0]['fullTextAnnotation']['text']
-                numeros = "".join(filter(str.isdigit, texto_bruto))
-                
-                if numeros:
-                    st.session_state.codigo_lido = numeros
-                    st.success(f"✅ Código detetado: {numeros}")
-                    # Um botão para confirmar ajuda a evitar que a câmara feche antes da hora
-                    if st.button("Confirmar Leitura"):
-                        st.rerun()
-                else:
-                    st.warning("⚠️ Não foi possível ler o código. Tente aproximar mais.")
-        except Exception as e:
-            st.error("Erro na comunicação com a IA. Verifique a internet.")
+            res = requests.post(url_vision, json=payload).json()
+            texto_bruto = res['responses'][0]['fullTextAnnotation']['text']
+            numeros = "".join(filter(str.isdigit, texto_bruto))
+            if numeros:
+                st.session_state.codigo_lido = numeros
+                st.success(f"✅ Detectado: {numeros}")
+            else:
+                st.warning("Nenhum número detectado.")
+        except:
+            st.error("Erro na leitura.")
+
 # --- ABAS ---
 tab_estoque, tab_alertas, tab_nutri, tab_cozinha, tab_etiquetas = st.tabs([
     "📦 Operações de Estoque", "⚠️ Painel de Alertas", "🍎 Nutricionista", "👨‍🍳 Cozinha", "🏷️ Etiquetas"
@@ -230,6 +224,7 @@ with tab_etiquetas:
                 <button style="width:100%; padding:10px; margin-top:10px;" onclick="window.print();">🖨️ Imprimir</button>
             """
             st.components.v1.html(etiqueta_html, height=450)
+
 
 
 
